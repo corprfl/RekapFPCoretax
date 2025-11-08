@@ -8,32 +8,47 @@ from io import BytesIO
 # 🧾 EXTRACTOR ISI FAKTUR PAJAK KE EXCEL
 # =====================================================
 
-st.title("Extractor isi Faktur Pajak ke Excel")
+st.title("Extractor isi Faktur Pajak ke Excel (Versi Pilih Kolom + Preview)")
 
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
-Aplikasi ini digunakan untuk **mengekstrak isi Faktur Pajak (PDF)** menjadi **file Excel**.  
-Data yang diambil mencakup:
-- Informasi faktur (Nomor, Tanggal, Nama PKP, NPWP, Pembeli, dsb)
-- Detail barang/jasa (kode atau deskripsi lengkap)
+Aplikasi ini digunakan untuk **mengekstrak isi Faktur Pajak (PDF)** menjadi **file Excel** secara otomatis.  
+Data yang diambil meliputi:
+- Informasi utama faktur (Nomor, Tanggal, Nama PKP, NPWP, Pembeli, dsb)
+- Rincian barang/jasa (kode, deskripsi, jumlah, harga)
 - Nilai transaksi (DPP, PPN, PPnBM, potongan, dan total lainnya)
 
 ### ⚙️ Fungsi Utama
-Extractor ini membantu Anda membuat rekap cepat dari banyak faktur PDF secara otomatis,  
-tanpa perlu mengetik ulang satu per satu di Excel.
+Dengan aplikasi ini, Anda dapat mengonversi **banyak faktur pajak PDF** ke Excel hanya dalam beberapa detik —  
+tanpa perlu mengetik manual satu per satu.
+
+---
 
 ### 🧩 Panduan Penggunaan
-1. Klik tombol **Browse files** di bawah untuk mengunggah satu atau beberapa file PDF Faktur Pajak.  
-2. Tekan tombol **📖 Baca File** untuk membaca isi faktur.  
-3. Pilih kolom yang ingin disertakan.  
-4. Tekan tombol **📥 Konversi & Download Excel** untuk mengunduh hasilnya.
+
+**Langkah 1 — Upload File Faktur Pajak**
+- Klik tombol **Browse files** di bawah untuk memilih satu atau beberapa file PDF Faktur Pajak.  
+
+**Langkah 2 — Baca File**
+- Tekan tombol **📖 Baca File** untuk mulai membaca isi file dan menampilkan hasil ekstraksi awal di layar.  
+
+**Langkah 3 — Pilih Kolom**
+- Setelah data muncul, gunakan daftar **Pilih Kolom** untuk menentukan kolom mana yang ingin diekspor ke Excel.  
+- Anda juga dapat menggunakan tombol **✅ Pilih Semua Kolom** atau **❌ Hapus Semua Kolom** untuk mempercepat pemilihan.  
+
+**Langkah 4 — Preview & Download**
+- Lihat pratinjau (5 baris pertama) dari kolom yang Anda pilih.
+- Tekan tombol **📥 Konversi & Download Excel** untuk mengunduh hasil dalam format `.xlsx`.
+
+---
 
 ### ⚠️ Disclaimer
 Semua proses dilakukan **langsung di perangkat Anda (client-side)**.  
-Tidak ada file yang dikirim atau disimpan di server.  
-Keamanan dan kerahasiaan dokumen sepenuhnya terjaga.
+Tidak ada file yang dikirim, disimpan, atau diproses di server.  
+Keamanan dan kerahasiaan dokumen Anda sepenuhnya terjamin.
 
 ---
+
 **By: Reza Fahlevi Lubis BKP @zavibis**
 """)
 
@@ -68,7 +83,7 @@ def extract_nitku(txt):
     return "-"
 
 # =====================================================
-# FAKTUR DENGAN KODE BARANG
+# EKSTRAKSI ISI TABEL FAKTUR
 # =====================================================
 def extract_tabel_dengan_kode(txt):
     result = []
@@ -91,9 +106,6 @@ def extract_tabel_dengan_kode(txt):
         })
     return result
 
-# =====================================================
-# FAKTUR TANPA KODE BARANG
-# =====================================================
 def extract_tabel_tanpa_kode(txt):
     result = []
     blocks = re.split(r'\n(?=\d+\s*\n)', txt)
@@ -126,9 +138,6 @@ def extract_tabel_tanpa_kode(txt):
             })
     return result
 
-# =====================================================
-# DETEKSI OTOMATIS
-# =====================================================
 def extract_tabel_auto(txt):
     if re.search(r"\n\s*\d+\s+\d{6}\s+", txt):
         return extract_tabel_dengan_kode(txt)
@@ -136,7 +145,7 @@ def extract_tabel_auto(txt):
         return extract_tabel_tanpa_kode(txt)
 
 # =====================================================
-# TOTAL & METADATA
+# METADATA & TOTAL
 # =====================================================
 def extract_total(txt):
     def val(p):
@@ -177,7 +186,7 @@ def kode_status(k):
     return k[:2], ("Normal" if k[2] == "0" else "Pengganti")
 
 # =====================================================
-# EKSEKUSI DENGAN FITUR PILIH KOLOM + PREVIEW
+# EKSEKUSI: UPLOAD → BACA → PILIH KOLOM → PREVIEW → DOWNLOAD
 # =====================================================
 upl = st.file_uploader("Upload Faktur Pajak (PDF)", type=["pdf"], accept_multiple_files=True)
 
@@ -216,17 +225,15 @@ if upl:
         st.success(f"✅ File berhasil dibaca! {len(df)} baris data ditemukan.")
         st.dataframe(df)
 
-# --- Step 2: Pilih Kolom ---
+# --- Step 2: Pilih Kolom & Preview ---
 if "data_faktur" in st.session_state:
     df = st.session_state["data_faktur"]
 
     st.markdown("### 🧩 Pilih Kolom untuk Diekspor")
 
-    # default semua kolom
     if "kolom_terpilih" not in st.session_state:
         st.session_state["kolom_terpilih"] = list(df.columns)
 
-    # tombol pilih semua / hapus semua
     col1, col2 = st.columns(2)
     with col1:
         if st.button("✅ Pilih Semua Kolom"):
@@ -241,17 +248,13 @@ if "data_faktur" in st.session_state:
         default=st.session_state["kolom_terpilih"],
         key="kolom_multiselect"
     )
-
-    # simpan pilihan agar persistent
     st.session_state["kolom_terpilih"] = kolom_terpilih
 
-    # --- Step 3: Preview hasil kolom terpilih ---
     if kolom_terpilih:
         df_filtered = df[kolom_terpilih]
         st.markdown("### 🔍 Preview Hasil Kolom Terpilih (5 Baris Pertama)")
         st.dataframe(df_filtered.head(5))
 
-        # --- Step 4: Konversi & Download ---
         buf = BytesIO()
         df_filtered.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f")
         buf.seek(0)
