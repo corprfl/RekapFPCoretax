@@ -8,27 +8,29 @@ st.title("Rekap Faktur Pajak ke Excel (Multi File)")
 
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
-Konversi **Faktur Pajak PDF** menjadi **Excel** lengkap dengan rincian barang, DPP, PPN, PPnBM, dan identitas PKP.
+Konversi **Faktur Pajak PDF** menjadi **Excel** dengan hasil rapi dan stabil, mendeteksi format DJP maupun versi Mandiri.
 
 ### ⚙️ Cara Pakai
-1. Upload satu atau beberapa PDF Faktur Pajak.  
-2. Klik **Eksekusi Convert**.  
-3. Lihat hasilnya, lalu unduh Excel.
+1. Upload satu atau beberapa file PDF Faktur Pajak.  
+2. Klik **Eksekusi Convert** untuk memproses.  
+3. Hasil rekap akan muncul dan bisa diunduh ke Excel.
 
 ### ⚠️ Disclaimer
-Semua proses berjalan di perangkat Anda — **tidak ada data disimpan**.  
+- Semua proses dilakukan **lokal di perangkat Anda**, tidak ada file yang disimpan.  
+- Hasil hanya digunakan untuk kebutuhan rekap internal.
+
 ---
 **By Reza Fahlevi Lubis BKP @zavibis**
 """)
 
 # ---------------------------------------------------------------
 bulan_map = {
-    "Januari":"01","Februari":"02","Maret":"03","April":"04",
-    "Mei":"05","Juni":"06","Juli":"07","Agustus":"08",
-    "September":"09","Oktober":"10","November":"11","Desember":"12"
+    "Januari": "01","Februari": "02","Maret": "03","April": "04",
+    "Mei": "05","Juni": "06","Juli": "07","Agustus": "08",
+    "September": "09","Oktober": "10","November": "11","Desember": "12"
 }
 
-def extract(pattern, text, flags=re.DOTALL, default="-", post=lambda x:x.strip()):
+def extract(pattern, text, flags=re.DOTALL, default="-", post=lambda x: x.strip()):
     m = re.search(pattern, text, flags)
     return post(m.group(1)) if m else default
 
@@ -45,27 +47,30 @@ def extract_nitku_pembeli(text):
     lines = text.splitlines()
     for i, l in enumerate(lines):
         if "NPWP" in l and i > 0:
-            prev = lines[i-1]
+            prev = lines[i - 1]
             m = re.search(r"#(\d{22})", prev)
             if m:
                 return m.group(1)
     return "-"
 
 # ---------------------------------------------------------------
-# PARSER UTAMA — gabung deskripsi penuh (v11.7)
+# PARSER UTAMA BARANG (v11.8)
 def extract_tabel_rinci(text):
+    """Ambil daftar barang lengkap, gabungkan deskripsi penuh + harga akhir"""
     result = []
     body = re.split(r"\nHarga\s+Jual\s*/\s*Penggantian", text, 1)[0]
-    lines = [l.strip() for l in body.splitlines() if l.strip()]
+    lines = [re.sub(r"\s+", " ", l.strip()) for l in body.splitlines() if l.strip()]
     i = 0
 
     while i < len(lines):
         line = lines[i]
-        if re.match(r"^No\s*\d+\.?", line) or re.match(r"^\d+\.?$", line):
+        # deteksi baris awal item (No 1 / 1.)
+        if re.match(r"^(No\s*)?\d+\.?$", line):
             no = re.sub(r"\D", "", line)
             desc_parts = [line]
             i += 1
-            # ambil baris sampai No berikutnya / total section
+
+            # gabungkan semua baris deskripsi hingga No berikutnya
             while i < len(lines) and not re.match(r"^(No\s*\d+\.?|\d+\.?|Harga\s+Jual)", lines[i]):
                 desc_parts.append(lines[i])
                 i += 1
@@ -73,8 +78,8 @@ def extract_tabel_rinci(text):
             blok = " ".join(desc_parts)
             blok = re.sub(r"\s+", " ", blok).strip()
 
-            # ambil angka terakhir dari blok
-            harga_match = re.findall(r"([\d.,]+)(?=[^\d.,]*$)", blok)
+            # ambil angka terakhir (harga)
+            harga_match = re.findall(r"([\d.,]+)(?!.*[\d.,])", blok)
             harga = 0.0
             if harga_match:
                 raw = harga_match[-1].replace(".", "").replace(",", ".")
@@ -82,19 +87,27 @@ def extract_tabel_rinci(text):
                     harga = float(raw)
                 except:
                     harga = 0.0
+            else:
+                # fallback: jika harga di baris berikut (baris terpisah)
+                if i < len(lines) and re.match(r"^[\d.,]+$", lines[i]):
+                    raw = lines[i].replace(".", "").replace(",", ".")
+                    try:
+                        harga = float(raw)
+                    except:
+                        harga = 0.0
+                    i += 1
 
-            # bersihkan deskripsi tanpa hilang konteks
-            deskripsi = re.sub(r"Rp\s*[\d.,]+\s*x.*", "", blok)
-            deskripsi = re.sub(r"Potongan Harga\s*=\s*Rp\s*[\d.,]+", "", deskripsi)
-            deskripsi = re.sub(r"PPnBM\s*\(.*?\)\s*=\s*Rp\s*[\d.,]+", "", deskripsi)
+            # bersihkan deskripsi tapi tetap utuh
+            deskripsi = re.sub(r"\s*(Rp\s*[\d.,]+.*x.*?Potongan Harga.*?PPnBM.*?Rp\s*[\d.,]+)", "", blok)
             deskripsi = re.sub(r"\s+", " ", deskripsi).strip()
 
-            result.append({
-                "No": no,
-                "Kode Barang/Jasa": "-",
-                "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
-                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
-            })
+            if deskripsi:
+                result.append({
+                    "No": no,
+                    "Kode Barang/Jasa": "-",
+                    "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
+                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
+                })
         else:
             i += 1
 
@@ -208,7 +221,7 @@ if uploaded_files:
         ]
         df = df[[c for c in order if c in df.columns]]
 
-        st.success("✅ Parsing dan konversi berhasil!")
+        st.success("✅ Parsing berhasil untuk semua format faktur pajak!")
         st.dataframe(df)
 
         buf = BytesIO()
