@@ -8,122 +8,100 @@ st.title("Rekap Faktur Pajak ke Excel (Multi File)")
 
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
-Konversi **Faktur Pajak PDF** menjadi **Excel** dengan hasil rapi dan stabil, mendeteksi format DJP maupun versi Mandiri.
+Ekstraktor Faktur Pajak dari PDF ke Excel — membaca deskripsi barang secara utuh dan total dengan akurasi tinggi.
 
 ### ⚙️ Cara Pakai
 1. Upload satu atau beberapa file PDF Faktur Pajak.  
-2. Klik **Eksekusi Convert** untuk memproses.  
-3. Hasil rekap akan muncul dan bisa diunduh ke Excel.
+2. Klik **Eksekusi Convert**.  
+3. Hasil rekap muncul dan bisa diunduh ke Excel.
 
 ### ⚠️ Disclaimer
-- Semua proses dilakukan **lokal di perangkat Anda**, tidak ada file yang disimpan.  
-- Hasil hanya digunakan untuk kebutuhan rekap internal.
-
+- Semua proses dilakukan **lokal di perangkat Anda**.  
+- Tidak ada file yang disimpan ke server.  
 ---
 **By Reza Fahlevi Lubis BKP @zavibis**
 """)
 
 # ---------------------------------------------------------------
 bulan_map = {
-    "Januari": "01","Februari": "02","Maret": "03","April": "04",
-    "Mei": "05","Juni": "06","Juli": "07","Agustus": "08",
-    "September": "09","Oktober": "10","November": "11","Desember": "12"
+    "Januari":"01","Februari":"02","Maret":"03","April":"04",
+    "Mei":"05","Juni":"06","Juli":"07","Agustus":"08",
+    "September":"09","Oktober":"10","November":"11","Desember":"12"
 }
 
-def extract(pattern, text, flags=re.DOTALL, default="-", post=lambda x: x.strip()):
-    m = re.search(pattern, text, flags)
+def extract(pattern, text, flags=re.DOTALL, default="-", post=lambda x:x.strip()):
+    m=re.search(pattern,text,flags)
     return post(m.group(1)) if m else default
 
 def extract_tanggal(text):
-    m = re.search(r"\b([A-Z .,]+),\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", text)
+    m=re.search(r"\b([A-Z .,]+),\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})",text)
     if m:
-        d = m.group(2).zfill(2)
-        b = bulan_map.get(m.group(3), "-")
-        y = m.group(4)
+        d=m.group(2).zfill(2)
+        b=bulan_map.get(m.group(3),"-")
+        y=m.group(4)
         return f"{d}/{b}/{y}"
     return "-"
 
 def extract_nitku_pembeli(text):
-    lines = text.splitlines()
-    for i, l in enumerate(lines):
-        if "NPWP" in l and i > 0:
-            prev = lines[i - 1]
-            m = re.search(r"#(\d{22})", prev)
-            if m:
-                return m.group(1)
+    lines=text.splitlines()
+    for i,l in enumerate(lines):
+        if "NPWP" in l and i>0:
+            prev=lines[i-1]
+            m=re.search(r"#(\d{22})",prev)
+            if m: return m.group(1)
     return "-"
 
 # ---------------------------------------------------------------
-# PARSER UTAMA BARANG (v11.8)
+# PARSER BARANG DENGAN BATAS BAWAH "Harga Jual / Penggantian"
 def extract_tabel_rinci(text):
-    """Ambil daftar barang lengkap, gabungkan deskripsi penuh + harga akhir"""
-    result = []
-    body = re.split(r"\nHarga\s+Jual\s*/\s*Penggantian", text, 1)[0]
-    lines = [re.sub(r"\s+", " ", l.strip()) for l in body.splitlines() if l.strip()]
-    i = 0
+    """Ambil daftar barang lengkap dan berhenti sebelum bagian total"""
+    result=[]
+    # potong hanya sebelum bagian total
+    section=re.split(r"Harga\s+Jual\s*/\s*Penggantian\s*/?\s*Uang\s*Muka\s*/?\s*Termin", text, maxsplit=1)[0]
 
-    while i < len(lines):
-        line = lines[i]
-        # deteksi baris awal item (No 1 / 1.)
-        if re.match(r"^(No\s*)?\d+\.?$", line):
-            no = re.sub(r"\D", "", line)
-            desc_parts = [line]
-            i += 1
+    # regex utama: blok dimulai dengan No. sampai No berikutnya
+    pattern=re.compile(r"(?m)(No\s*\d+\.?|^\d+\.?)\s*(.*?)(?=(?:No\s*\d+\.?|^\d+\.?|$))", re.DOTALL)
+    for m in pattern.finditer(section):
+        blok=m.group(0).strip()
 
-            # gabungkan semua baris deskripsi hingga No berikutnya
-            while i < len(lines) and not re.match(r"^(No\s*\d+\.?|\d+\.?|Harga\s+Jual)", lines[i]):
-                desc_parts.append(lines[i])
-                i += 1
+        # nomor
+        no_match=re.search(r"(\d+)",blok)
+        no=no_match.group(1) if no_match else "-"
 
-            blok = " ".join(desc_parts)
-            blok = re.sub(r"\s+", " ", blok).strip()
+        # ambil harga terakhir
+        harga_match=re.findall(r"([\d.,]+)(?!.*[\d.,])",blok)
+        harga=0.0
+        if harga_match:
+            raw=harga_match[-1].replace(".","").replace(",",".")
+            try: harga=float(raw)
+            except: harga=0.0
 
-            # ambil angka terakhir (harga)
-            harga_match = re.findall(r"([\d.,]+)(?!.*[\d.,])", blok)
-            harga = 0.0
-            if harga_match:
-                raw = harga_match[-1].replace(".", "").replace(",", ".")
-                try:
-                    harga = float(raw)
-                except:
-                    harga = 0.0
-            else:
-                # fallback: jika harga di baris berikut (baris terpisah)
-                if i < len(lines) and re.match(r"^[\d.,]+$", lines[i]):
-                    raw = lines[i].replace(".", "").replace(",", ".")
-                    try:
-                        harga = float(raw)
-                    except:
-                        harga = 0.0
-                    i += 1
+        # deskripsi penuh tapi tanpa No
+        deskripsi=re.sub(r"^\s*No\s*\d+\.?\s*","",blok)
+        deskripsi=re.sub(r"\s+"," ",deskripsi)
+        deskripsi=deskripsi.strip()
 
-            # bersihkan deskripsi tapi tetap utuh
-            deskripsi = re.sub(r"\s*(Rp\s*[\d.,]+.*x.*?Potongan Harga.*?PPnBM.*?Rp\s*[\d.,]+)", "", blok)
-            deskripsi = re.sub(r"\s+", " ", deskripsi).strip()
+        # skip kalau sudah bagian total
+        if re.search(r"Harga\s+Jual\s*/|Dasar\s+Pengenaan",deskripsi,re.I):
+            continue
 
-            if deskripsi:
-                result.append({
-                    "No": no,
-                    "Kode Barang/Jasa": "-",
-                    "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
-                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
-                })
-        else:
-            i += 1
-
+        if deskripsi:
+            result.append({
+                "No":no,
+                "Kode Barang/Jasa":"-",
+                "Nama Barang Kena Pajak / Jasa Kena Pajak":deskripsi,
+                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)":harga
+            })
     return result
 
 # ---------------------------------------------------------------
 def extract_total_section(text):
     def val(p):
-        m = re.search(p, text, re.DOTALL)
-        if not m:
-            return 0.0
-        raw = m.group(1).strip().replace(".", "").replace(",", ".")
-        try:
-            return float(raw)
-        except:
-            return 0.0
+        m=re.search(p,text,re.DOTALL)
+        if not m: return 0.0
+        raw=m.group(1).strip().replace(".","").replace(",",".")
+        try: return float(raw)
+        except: return 0.0
     return {
         "Total Harga Jual / Penggantian / Uang Muka / Termin":
             val(r"Harga\s*Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"),
@@ -157,75 +135,73 @@ def extract_data_from_text(text):
     }
 
 def extract_kode_status(kode):
-    if not kode or len(kode) < 3:
-        return "-", "-"
-    return kode[:2], ("Normal" if kode[2] == "0" else "Pengganti")
+    if not kode or len(kode)<3:
+        return "-","-"
+    return kode[:2], ("Normal" if kode[2]=="0" else "Pengganti")
 
 # ---------------------------------------------------------------
-uploaded_files = st.file_uploader("Upload PDF Faktur Pajak", type=["pdf"], accept_multiple_files=True)
+uploaded_files=st.file_uploader("Upload PDF Faktur Pajak",type=["pdf"],accept_multiple_files=True)
 if uploaded_files:
     if st.button("Eksekusi Convert"):
-        rows = []
+        rows=[]
         for f in uploaded_files:
-            data_bytes = f.read()
-            with fitz.open(stream=data_bytes, filetype="pdf") as doc:
-                text = "".join(p.get_text() for p in doc)
+            data=f.read()
+            with fitz.open(stream=data,filetype="pdf") as doc:
+                text="".join(p.get_text() for p in doc)
 
-            meta = extract_data_from_text(text)
-            kode = meta.get("Kode dan Nomor Seri Faktur Pajak", "")
-            kf, stt = extract_kode_status(kode)
-            meta.update({"Kode Faktur": kf, "Status Faktur": stt, "Nama Asli File": f.name})
+            meta=extract_data_from_text(text)
+            kode=meta.get("Kode dan Nomor Seri Faktur Pajak","")
+            kf,stt=extract_kode_status(kode)
+            meta.update({"Kode Faktur":kf,"Status Faktur":stt,"Nama Asli File":f.name})
             meta.update(extract_total_section(text))
 
-            tgl = meta["Tanggal Faktur Pajak"].split("/")
-            meta["Masa"] = tgl[1] if len(tgl) > 1 else "-"
-            meta["Tahun"] = tgl[2] if len(tgl) > 2 else "-"
+            tgl=meta["Tanggal Faktur Pajak"].split("/")
+            meta["Masa"]=tgl[1] if len(tgl)>1 else "-"
+            meta["Tahun"]=tgl[2] if len(tgl)>2 else "-"
 
-            items = extract_tabel_rinci(text)
+            items=extract_tabel_rinci(text)
             if not items:
-                items = [{
-                    "No": "-",
-                    "Kode Barang/Jasa": "-",
-                    "Nama Barang Kena Pajak / Jasa Kena Pajak": "-",
-                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0.0
+                items=[{
+                    "No":"-","Kode Barang/Jasa":"-",
+                    "Nama Barang Kena Pajak / Jasa Kena Pajak":"-",
+                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)":0.0
                 }]
             for it in items:
-                rows.append({**it, **meta})
+                rows.append({**it,**meta})
 
-        df = pd.DataFrame(rows)
-        numcols = [
+        df=pd.DataFrame(rows)
+        numcols=[
             "Total Harga Jual / Penggantian / Uang Muka / Termin",
             "Dikurangi Potongan Harga (Total)",
             "Dikurangi Uang Muka yang telah diterima (Total)",
             "Dasar Pengenaan Pajak (Total)",
-            "PPN (Total)", "Jumlah PPnBM (Total)",
+            "PPN (Total)","Jumlah PPnBM (Total)",
             "Harga Jual / Penggantian / Uang Muka / Termin (Rp)"
         ]
         for c in numcols:
             if c in df.columns:
-                df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+                df[c]=pd.to_numeric(df[c],errors="coerce").fillna(0.0)
 
-        order = [
-            "Kode Faktur", "Status Faktur", "Kode dan Nomor Seri Faktur Pajak",
-            "Nama Pengusaha Kena Pajak", "NPWP Pengusaha Kena Pajak",
-            "Nama Pembeli Barang/Jasa", "NPWP Pembeli Barang/Jasa", "NITKU Pembeli",
-            "Tanggal Faktur Pajak", "Kota",
-            "No", "Kode Barang/Jasa", "Nama Barang Kena Pajak / Jasa Kena Pajak",
+        order=[
+            "Kode Faktur","Status Faktur","Kode dan Nomor Seri Faktur Pajak",
+            "Nama Pengusaha Kena Pajak","NPWP Pengusaha Kena Pajak",
+            "Nama Pembeli Barang/Jasa","NPWP Pembeli Barang/Jasa","NITKU Pembeli",
+            "Tanggal Faktur Pajak","Kota",
+            "No","Kode Barang/Jasa","Nama Barang Kena Pajak / Jasa Kena Pajak",
             "Harga Jual / Penggantian / Uang Muka / Termin (Rp)",
             "Total Harga Jual / Penggantian / Uang Muka / Termin",
             "Dikurangi Potongan Harga (Total)",
             "Dikurangi Uang Muka yang telah diterima (Total)",
-            "Dasar Pengenaan Pajak (Total)",
-            "PPN (Total)", "Jumlah PPnBM (Total)",
-            "Referensi", "Penandatangan", "Nama Asli File", "Masa", "Tahun"
+            "Dasar Pengenaan Pajak (Total)","PPN (Total)","Jumlah PPnBM (Total)",
+            "Referensi","Penandatangan","Nama Asli File","Masa","Tahun"
         ]
-        df = df[[c for c in order if c in df.columns]]
+        df=df[[c for c in order if c in df.columns]]
 
-        st.success("✅ Parsing berhasil untuk semua format faktur pajak!")
+        st.success("✅ Parsing faktur berhasil tanpa bagian total ikut terbaca!")
         st.dataframe(df)
 
-        buf = BytesIO()
-        df.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f")
+        buf=BytesIO()
+        df.to_excel(buf,index=False,engine="openpyxl",float_format="%.0f")
         buf.seek(0)
-        st.download_button("📥 Download Rekap Excel", buf, "rekap_faktur.xlsx",
+        st.download_button("📥 Download Rekap Excel",buf,"rekap_faktur.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
