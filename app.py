@@ -3,7 +3,7 @@ import pandas as pd
 import fitz
 import re
 from io import BytesIO
-from streamlit_sortables import sort_items  # ✅ Tambahan untuk fitur drag & drop
+from streamlit_sortables import sort_items  # ✅ untuk drag & drop
 
 # =====================================================
 # 🧾 EXTRACTOR ISI FAKTUR PAJAK KE EXCEL
@@ -205,7 +205,6 @@ if upl:
             tgl = meta["Tanggal Faktur Pajak"].split("/")
             meta["Masa"] = tgl[1] if len(tgl) > 1 else "-"
             meta["Tahun"] = tgl[2] if len(tgl) > 2 else "-"
-
             items = extract_tabel_auto(txt)
             if not items:
                 items = [{"No": "-", "Kode Barang/Jasa": "-", "Nama Barang Kena Pajak / Jasa Kena Pajak": "Tidak terbaca", "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0.0}]
@@ -234,22 +233,33 @@ if "data_faktur" in st.session_state:
     with col1:
         if st.button("✅ Pilih Semua Kolom", use_container_width=True):
             st.session_state["kolom_terpilih"] = list(df.columns)
-            st.rerun()
+            st.experimental_rerun()
     with col2:
         if st.button("❌ Hapus Semua Kolom", use_container_width=True):
             st.session_state["kolom_terpilih"] = []
-            st.rerun()
+            st.experimental_rerun()
+
+    kolom_default = [
+        c for c in st.session_state.get("kolom_terpilih", [])
+        if c in list(df.columns)
+    ]
 
     kolom_terpilih = st.multiselect(
         "Pilih kolom yang ingin disertakan dalam hasil konversi:",
         options=list(df.columns),
-        default=st.session_state["kolom_terpilih"],
+        default=kolom_default,
         key="kolom_multiselect"
     )
+    st.session_state["kolom_terpilih"] = kolom_terpilih
 
     if kolom_terpilih:
-        st.markdown("### ↕️ Atur Urutan Kolom (Drag & Drop di bawah)")
-        ordered_cols = sort_items(kolom_terpilih, direction="horizontal", multi_containers=False, key="sortable_cols")
+        st.markdown("### ↕️ Atur Urutan Kolom (Drag & Drop)")
+        ordered_cols = sort_items(
+            kolom_terpilih,
+            direction="horizontal",
+            multi_containers=False,
+            key="sortable_cols"
+        )
 
         if ordered_cols:
             df_filtered = df[ordered_cols]
@@ -259,6 +269,7 @@ if "data_faktur" in st.session_state:
             buf = BytesIO()
             df_filtered.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f")
             buf.seek(0)
+
             st.download_button(
                 "📥 Konversi & Download Excel",
                 buf,
