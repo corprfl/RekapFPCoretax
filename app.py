@@ -17,7 +17,7 @@ div.stButton > button:first-child {
 }
 div[data-testid="stButton"] button:hover { transform: scale(1.03); }
 
-button[kind="primary"], .stDownloadButton button {
+button[kind="primary"], .stDownloadButton button, #tetapkan-kolom button, #urutan-kolom button {
     background-color: #2ecc71 !important;
     color: white !important;
     font-weight: 600 !important;
@@ -36,17 +36,17 @@ button[kind="primary"], .stDownloadButton button {
 # =====================================================
 # 🧾 EXTRACTOR ISI FAKTUR PAJAK KE EXCEL
 # =====================================================
-st.title("Extractor isi Faktur Pajak ke Excel (Versi Pilih Kolom)")
+st.title("Extractor isi Faktur Pajak ke Excel (Step by Step)")
 
 st.markdown("""
 ### 🧭 Panduan Singkat
 1️⃣ Upload faktur PDF  
 2️⃣ Klik **📖 Baca File**  
-3️⃣ Pilih kolom yang mau diekspor  
-4️⃣ Atur urutan kolom (drag & drop)  
-5️⃣ Klik **📥 Download Excel**
+3️⃣ Pilih kolom yang mau diekspor → klik **✅ Tetapkan Kolom Terpilih**  
+4️⃣ Urutkan kolom (drag & drop) → klik **↕️ Tetapkan Urutan Kolom**  
+5️⃣ Lihat preview & klik **📥 Download Excel**
 
-Semua proses berjalan **lokal di perangkat Anda** — tidak ada file dikirim ke server.
+Semua proses berjalan **lokal di perangkat Anda**, tidak ada file dikirim ke server.
 ---
 **By: Reza Fahlevi Lubis BKP @zavibis**
 """)
@@ -134,6 +134,7 @@ if upl and st.button("📖 Baca File", type="primary", key="baca_file"):
             rows.append({**it, **meta})
     df = pd.DataFrame(rows)
     st.session_state["data_faktur"] = df
+    st.session_state["step"] = "pilih"
     st.session_state["kolom_terpilih"] = list(df.columns)
     st.success(f"✅ {len(df)} baris berhasil dibaca.")
     st.dataframe(df)
@@ -141,7 +142,7 @@ if upl and st.button("📖 Baca File", type="primary", key="baca_file"):
 # =====================================================
 # STEP 2 — PILIH KOLOM
 # =====================================================
-if "data_faktur" in st.session_state:
+if st.session_state.get("step") in ["pilih", "urut", "preview"] and "data_faktur" in st.session_state:
     df = st.session_state["data_faktur"]
     kolom_tersedia = list(df.columns)
     kolom_terpilih = st.session_state.get("kolom_terpilih", kolom_tersedia)
@@ -163,17 +164,23 @@ if "data_faktur" in st.session_state:
         st.markdown('</div>', unsafe_allow_html=True)
 
     kolom_terpilih = st.multiselect(
-        "Pilih kolom yang ingin disertakan dalam hasil konversi:",
+        "Pilih kolom:",
         options=kolom_tersedia,
         default=[c for c in kolom_terpilih if c in kolom_tersedia],
         key="kolom_multiselect"
     )
     st.session_state["kolom_terpilih"] = kolom_terpilih
 
+    st.markdown('<div id="tetapkan-kolom">', unsafe_allow_html=True)
+    if st.button("✅ Tetapkan Kolom Terpilih", key="btn_tetapkan_kolom"):
+        if kolom_terpilih:
+            st.session_state["step"] = "urut"
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # =====================================================
-# STEP 3 — URUTKAN KOLOM & DOWNLOAD
+# STEP 3 — URUTKAN KOLOM
 # =====================================================
-if st.session_state.get("kolom_terpilih"):
+if st.session_state.get("step") in ["urut", "preview"] and st.session_state.get("kolom_terpilih"):
     st.markdown("### ↕️ Urutkan Kolom (Drag & Drop)")
     ordered_cols = sort_items(
         st.session_state["kolom_terpilih"],
@@ -181,8 +188,23 @@ if st.session_state.get("kolom_terpilih"):
         multi_containers=False,
         key="sortable_cols"
     )
+    st.session_state["ordered_cols"] = ordered_cols
 
+    st.markdown('<div id="urutan-kolom">', unsafe_allow_html=True)
+    if st.button("↕️ Tetapkan Urutan Kolom", key="btn_tetapkan_urutan"):
+        if ordered_cols:
+            st.session_state["step"] = "preview"
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# =====================================================
+# STEP 4 — PREVIEW & DOWNLOAD
+# =====================================================
+if st.session_state.get("step") == "preview" and st.session_state.get("ordered_cols"):
+    df = st.session_state["data_faktur"]
+    ordered_cols = st.session_state["ordered_cols"]
     df_filtered = df[ordered_cols]
+
+    st.markdown("### 🔍 Preview Hasil Kolom Terpilih (5 Baris Pertama)")
     st.dataframe(df_filtered.head(5))
 
     buf = BytesIO()
@@ -194,5 +216,3 @@ if st.session_state.get("kolom_terpilih"):
         "rekap_faktur_terpilih.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-else:
-    st.warning("⚠️ Belum ada kolom yang dipilih.")
