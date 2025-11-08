@@ -13,8 +13,8 @@ st.title("Rekap Faktur Pajak ke Excel (Multi File)")
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
 Aplikasi ini digunakan untuk **mengekstrak data dari Faktur Pajak PDF** menjadi **file Excel**
-berisi rincian lengkap seperti Kode Faktur, Nama PKP, Pembeli, NITKU, Harga Jual, PPN, dan
-**bagian total Faktur (DPP, Potongan, Uang Muka, PPN, PPnBM)**.
+berisi rincian lengkap seperti Kode Faktur, Status, Nama PKP, Pembeli, NITKU, Harga Jual, dan total bagian bawah faktur
+(DPP, Potongan, Uang Muka, Dasar Pengenaan Pajak, PPN, dan PPnBM).
 
 ### ⚙️ Cara Penggunaan
 1. Upload satu atau beberapa file PDF Faktur Pajak menggunakan tombol di bawah.  
@@ -79,34 +79,30 @@ def extract_tabel_rinci(text):
         no = m.group(1)
         kode = m.group(2)
         deskripsi = " ".join(m.group(3).split())
-        harga_str = m.group(4).replace(".", "").replace(",", ".")
-        try:
-            harga = float(harga_str)
-        except:
-            harga = 0.0
+        harga_str = m.group(4).replace(".", "").replace(",", "")
         result.append({
             "No": no,
             "Kode Barang/Jasa": kode,
             "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
-            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
+            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga_str
         })
     return result
 
 
 def extract_total_section(text):
-    """Ambil bagian total di bawah tabel"""
+    """Ambil bagian total di bawah tabel faktur"""
     def get_val(pat):
-        m = re.search(pat, text)
+        m = re.search(pat, text, re.DOTALL)
         if not m:
             return "-"
-        return m.group(1).replace(".", "").replace(",", ".")
+        return re.sub(r"[^\d]", "", m.group(1))  # hanya angka
     return {
-        "Total Harga Jual / Penggantian / Uang Muka / Termin": get_val(r"Harga Jual\s*/\s*Penggantian\s*/\s*Uang Muka\s*/\s*Termin\s*([0-9.]+,[0-9]+)"),
-        "Dikurangi Potongan Harga (Total)": get_val(r"Dikurangi Potongan Harga\s*([0-9.]+,[0-9]+)"),
-        "Dikurangi Uang Muka yang telah diterima (Total)": get_val(r"Dikurangi Uang Muka yang telah diterima\s*([0-9.]+,[0-9]+)"),
-        "Dasar Pengenaan Pajak (Total)": get_val(r"Dasar Pengenaan Pajak\s*([0-9.]+,[0-9]+)"),
-        "PPN (Total)": get_val(r"Jumlah PPN.*?([0-9.]+,[0-9]+)"),
-        "Jumlah PPnBM (Total)": get_val(r"Jumlah PPnBM.*?([0-9.]+,[0-9]+)")
+        "Total Harga Jual / Penggantian / Uang Muka / Termin": get_val(r"Harga Jual\s*/\s*Penggantian\s*/\s*Uang Muka\s*/\s*Termin\s*([\d.,]+)"),
+        "Dikurangi Potongan Harga (Total)": get_val(r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]+)"),
+        "Dikurangi Uang Muka yang telah diterima (Total)": get_val(r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]+)"),
+        "Dasar Pengenaan Pajak (Total)": get_val(r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"),
+        "PPN (Total)": get_val(r"Jumlah\s*PPN\s*\(.*?\)\s*([\d.,]+)"),
+        "Jumlah PPnBM (Total)": get_val(r"Jumlah\s*PPnBM\s*\(.*?\)\s*([\d.,]+)")
     }
 
 
@@ -127,6 +123,17 @@ def extract_data_from_text(text):
         "Penandatangan": extract(r"Ditandatangani secara elektronik\n(.*?)\n", text),
     }
 
+
+def extract_kode_status(kode_seri):
+    """Ambil kode faktur (2 digit awal) dan status (Normal/Pengganti) dari nomor seri"""
+    if not kode_seri or len(kode_seri) < 3:
+        return "-", "-"
+    kode_faktur = kode_seri[:2]
+    status_digit = kode_seri[2]
+    status = "Normal" if status_digit == "0" else "Pengganti"
+    return kode_faktur, status
+
+
 # ===============================================================
 # UPLOAD & PROSES PDF
 # ===============================================================
@@ -144,9 +151,14 @@ if uploaded_files:
                 full_text = "".join([page.get_text() for page in doc])
 
             data = extract_data_from_text(full_text)
-            data["Nama Asli File"] = filename
 
-            # ambil total-section
+            # ambil Kode Faktur & Status
+            kode_seri = data.get("Kode dan Nomor Seri Faktur Pajak", "")
+            kode_faktur, status = extract_kode_status(kode_seri)
+            data["Kode Faktur"] = kode_faktur
+            data["Status Faktur"] = status
+
+            data["Nama Asli File"] = filename
             total_section = extract_total_section(full_text)
             data.update(total_section)
 
@@ -165,7 +177,7 @@ if uploaded_files:
                     "No": "-",
                     "Kode Barang/Jasa": "-",
                     "Nama Barang Kena Pajak / Jasa Kena Pajak": "-",
-                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0
+                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": "0"
                 }]
 
             for row in rinci:
