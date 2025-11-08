@@ -68,18 +68,15 @@ def extract_nitku_pembeli(text):
 
 
 # ===============================================================
-# 🔧 RINCI ITEM (TANGANI ADA / TANPA KODE BARANG)
+# 🔧 RINCI ITEM (BISA ADA/TANPA KODE BARANG)
 # ===============================================================
 def extract_tabel_rinci(text):
     """Ambil setiap blok item Faktur (ada atau tidak ada kode barang)"""
     result = []
-
-    # pola fleksibel: nomor urut + opsional kode barang + deskripsi + harga
     pattern = re.compile(
         r"(\d+)\s+(?:(\d{6})\s+)?([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+|\nHarga Jual|$)",
         re.MULTILINE
     )
-
     for m in pattern.finditer(text):
         no = m.group(1)
         kode = m.group(2) if m.group(2) else "-"
@@ -99,28 +96,46 @@ def extract_tabel_rinci(text):
     return result
 
 
+# ===============================================================
+# 💰 TOTAL SECTION (TAHAN FORMAT ACAK / KOSONG)
+# ===============================================================
 def extract_total_section(text):
-    """Ambil bagian total di bawah tabel"""
+    """Ambil bagian total di bawah tabel (tahan format renggang & baris kosong)"""
     def get_val(pat):
         m = re.search(pat, text, re.DOTALL)
         if not m:
             return 0.0
-        raw = m.group(1).replace(".", "").replace(",", ".")
+        raw = m.group(1).strip().replace(".", "").replace(",", ".")
         try:
             return float(raw)
         except:
             return 0.0
 
     return {
-        "Total Harga Jual / Penggantian / Uang Muka / Termin": get_val(r"Harga\s+Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"),
-        "Dikurangi Potongan Harga (Total)": get_val(r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]+)"),
-        "Dikurangi Uang Muka yang telah diterima (Total)": get_val(r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]+)"),
-        "Dasar Pengenaan Pajak (Total)": get_val(r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"),
-        "PPN (Total)": get_val(r"Jumlah\s*PPN\s*\(.*?\)\s*([\d.,]+)"),
-        "Jumlah PPnBM (Total)": get_val(r"Jumlah\s*PPnBM\s*\(.*?\)\s*([\d.,]+)")
+        "Total Harga Jual / Penggantian / Uang Muka / Termin": get_val(
+            r"Harga\s*Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"
+        ),
+        "Dikurangi Potongan Harga (Total)": get_val(
+            r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]*)"
+        ),
+        "Dikurangi Uang Muka yang telah diterima (Total)": get_val(
+            r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]*)"
+        ),
+        "Dasar Pengenaan Pajak (Total)": get_val(
+            r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"
+        ),
+        "PPN (Total)": get_val(
+            r"Jumlah\s*PPN.*?([\d.,]+)"
+        ),
+        "Jumlah PPnBM (Total)": get_val(
+            r"Jumlah\s*PPnBM.*?([\d.,]+)"
+        )
     }
 
 
+# ===============================================================
+# 🧠 EKSTRAK METADATA
+# ===============================================================
 def extract_data_from_text(text):
     return {
         "Kode dan Nomor Seri Faktur Pajak": extract(r"Kode dan Nomor Seri Faktur Pajak:\s*(\d+)", text),
@@ -148,7 +163,7 @@ def extract_kode_status(kode_seri):
 
 
 # ===============================================================
-# UPLOAD & PROSES PDF
+# ⚙️ UPLOAD & PROSES PDF
 # ===============================================================
 
 uploaded_files = st.file_uploader("Upload PDF Faktur Pajak", type=["pdf"], accept_multiple_files=True)
@@ -210,7 +225,7 @@ if uploaded_files:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
-        # urutan kolom tetap rapi seperti versi stabil
+        # urutan kolom tetap rapi
         order_cols = [
             "Kode Faktur", "Status Faktur", "Kode dan Nomor Seri Faktur Pajak",
             "Nama Pengusaha Kena Pajak", "NPWP Pengusaha Kena Pajak",
