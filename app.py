@@ -13,8 +13,8 @@ st.title("Rekap Faktur Pajak ke Excel (Multi File)")
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
 Aplikasi ini digunakan untuk **mengekstrak data dari Faktur Pajak PDF** menjadi **file Excel**
-berisi rincian lengkap seperti Kode Faktur, Nama PKP, Pembeli, NITKU, Harga Jual, DPP, PPN,
-dan **Tanggal Faktur Pajak**.
+berisi rincian lengkap seperti Kode Faktur, Nama PKP, Pembeli, NITKU, Harga Jual, PPN, dan
+**bagian total Faktur (DPP, Potongan, Uang Muka, PPN, PPnBM)**.
 
 ### ⚙️ Cara Penggunaan
 1. Upload satu atau beberapa file PDF Faktur Pajak menggunakan tombol di bawah.  
@@ -93,6 +93,23 @@ def extract_tabel_rinci(text):
     return result
 
 
+def extract_total_section(text):
+    """Ambil bagian total di bawah tabel"""
+    def get_val(pat):
+        m = re.search(pat, text)
+        if not m:
+            return "-"
+        return m.group(1).replace(".", "").replace(",", ".")
+    return {
+        "Total Harga Jual / Penggantian / Uang Muka / Termin": get_val(r"Harga Jual\s*/\s*Penggantian\s*/\s*Uang Muka\s*/\s*Termin\s*([0-9.]+,[0-9]+)"),
+        "Dikurangi Potongan Harga (Total)": get_val(r"Dikurangi Potongan Harga\s*([0-9.]+,[0-9]+)"),
+        "Dikurangi Uang Muka yang telah diterima (Total)": get_val(r"Dikurangi Uang Muka yang telah diterima\s*([0-9.]+,[0-9]+)"),
+        "Dasar Pengenaan Pajak (Total)": get_val(r"Dasar Pengenaan Pajak\s*([0-9.]+,[0-9]+)"),
+        "PPN (Total)": get_val(r"Jumlah PPN.*?([0-9.]+,[0-9]+)"),
+        "Jumlah PPnBM (Total)": get_val(r"Jumlah PPnBM.*?([0-9.]+,[0-9]+)")
+    }
+
+
 def extract_data_from_text(text):
     """Ambil metadata Faktur"""
     return {
@@ -104,7 +121,6 @@ def extract_data_from_text(text):
         "Alamat Pembeli Barang/Jasa": extract(r"Pembeli Barang Kena Pajak.*?Alamat\s*:\s*(.*?)\s*#", text),
         "NPWP Pembeli Barang/Jasa": extract(r"NPWP\s*:\s*([0-9.]+)\s*NIK", text),
         "NITKU Pembeli": extract_nitku_pembeli(text),
-        "Jumlah PPnBM": extract(r"Jumlah PPnBM.*?([0-9.]+,[0-9]+)", text),
         "Kota": extract(r"\n([A-Z .,]+),\s*\d{1,2}\s+\w+\s+\d{4}", text),
         "Tanggal Faktur Pajak": extract_tanggal(text),
         "Referensi": extract(r"Referensi:\s*(.*?)\n", text),
@@ -130,7 +146,11 @@ if uploaded_files:
             data = extract_data_from_text(full_text)
             data["Nama Asli File"] = filename
 
-            # Ambil bulan & tahun dari tanggal faktur
+            # ambil total-section
+            total_section = extract_total_section(full_text)
+            data.update(total_section)
+
+            # ambil bulan & tahun dari tanggal
             try:
                 tgl_parts = data["Tanggal Faktur Pajak"].split("/")
                 data["Masa"] = tgl_parts[1]
@@ -150,23 +170,6 @@ if uploaded_files:
 
             for row in rinci:
                 merged = {**row, **data}
-                try:
-                    harga = float(row["Harga Jual / Penggantian / Uang Muka / Termin (Rp)"])
-                    kode_faktur = merged.get("Kode dan Nomor Seri Faktur Pajak", "")
-                    if kode_faktur.startswith("01"):
-                        dpp = harga
-                        ppn = round(dpp * 0.12)
-                    elif kode_faktur.startswith("05"):
-                        dpp = harga
-                        ppn = round(dpp * 11 / 12 * 0.12)
-                    else:
-                        dpp = round(harga * 11 / 12)
-                        ppn = round(dpp * 0.12)
-                    merged["DPP"] = f"{dpp:,.0f}".replace(",", ".")
-                    merged["PPN"] = f"{ppn:,.0f}".replace(",", ".")
-                except:
-                    merged["DPP"] = "-"
-                    merged["PPN"] = "-"
                 final_rows.append(merged)
 
         # ===============================================================
