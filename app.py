@@ -194,8 +194,9 @@ if st.session_state.get("step") in ["pilih", "urut", "preview"] and "data_faktur
     df = st.session_state["data_faktur"]
 
     st.markdown("### 🧩 Pilih Kolom yang Akan Dikonversi")
-    if "kolom_terpilih" not in st.session_state:
-        st.session_state["kolom_terpilih"] = list(df.columns)
+    kolom_tersedia = list(df.columns)
+    kolom_simpan = st.session_state.get("kolom_terpilih", [])
+    kolom_default = [c for c in kolom_simpan if c in kolom_tersedia]
 
     col1, col2 = st.columns(2)
     with col1:
@@ -213,11 +214,10 @@ if st.session_state.get("step") in ["pilih", "urut", "preview"] and "data_faktur
 
     kolom_terpilih = st.multiselect(
         "Pilih kolom:",
-        options=list(df.columns),
-        default=st.session_state["kolom_terpilih"],
+        options=kolom_tersedia,
+        default=kolom_default,
         key="kolom_multiselect"
     )
-
     st.session_state["kolom_terpilih"] = kolom_terpilih
 
     st.markdown('<div id="tetapkan-kolom">', unsafe_allow_html=True)
@@ -237,7 +237,6 @@ if st.session_state.get("step") in ["urut", "preview"] and st.session_state.get(
         multi_containers=False,
         key="sortable_cols"
     )
-
     st.session_state["ordered_cols"] = ordered_cols
 
     st.markdown('<div id="urutan-kolom">', unsafe_allow_html=True)
