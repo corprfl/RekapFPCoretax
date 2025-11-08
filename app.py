@@ -7,7 +7,7 @@ from streamlit_sortables import sort_items
 
 st.set_page_config(page_title="Extractor Faktur Pajak", layout="wide")
 
-# ====== CSS TOMBOL ======
+# ====== CSS STYLE ======
 st.markdown("""
 <style>
 div.stButton > button:first-child {
@@ -18,30 +18,50 @@ button[kind="primary"],.stDownloadButton button,
 #data-sesuai button,#urutan-kolom button,#reset-app button{
     background:#2ecc71!important;color:white!important;font-weight:600!important;
 }
-#reset-app button{background:#f39c12!important;}
+#reset-app button{background:#f39c12!important;color:white!important;}
 </style>
 """, unsafe_allow_html=True)
 
-# ====== INIT STATE ======
+# ====== INIT SESSION STATE ======
 for k, v in {"step": None, "data_faktur": None, "ordered_cols": None}.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 # =====================================================
-# JUDUL & PANDUAN
+# 🧾 HEADER & DESKRIPSI
 # =====================================================
 st.title("Extractor isi Faktur Pajak ke Excel (Versi Drag & Drop Langsung)")
-st.markdown("""
-**Alur singkat:**
-1️⃣ Upload Faktur Pajak (PDF)  
-2️⃣ 📖 Baca File → Preview  
-3️⃣ ✅ Data Sesuai  
-4️⃣ ↕️ Urutkan Kolom (Drag & Drop)  
-5️⃣ ✅ Tetapkan Urutan Kolom  
-6️⃣ 🔍 Preview & 📥 Download Excel  
 
-Semua proses lokal, **tidak ada file dikirim ke server.**  
+st.markdown("""
+### 📘 Deskripsi Aplikasi
+Aplikasi ini digunakan untuk **mengekstrak isi Faktur Pajak (PDF)** menjadi **file Excel secara otomatis**.  
+Cocok untuk Anda yang ingin merekap data faktur pajak dengan cepat tanpa harus mengetik manual.
+
+Aplikasi ini akan membaca:
+- 📄 **Informasi faktur** (nomor, tanggal, nama PKP, NPWP, pembeli, dsb)
+- 💬 **Rincian barang/jasa** (kode atau deskripsi lengkap)
+- 💰 **Nilai transaksi** (DPP, PPN, PPnBM, potongan harga, total, dan lainnya)
+
 ---
+
+### ⚙️ Panduan Penggunaan
+1️⃣ **Upload Faktur Pajak (PDF)** – pilih satu atau beberapa file.  
+2️⃣ Klik **📖 Baca File** – sistem akan membaca isi PDF dan menampilkan hasilnya.  
+3️⃣ Pastikan hasil ekstraksi benar, lalu klik **✅ Data Sesuai**.  
+4️⃣ **Urutkan Kolom (Drag & Drop)** sesuai urutan yang Anda inginkan, lalu klik **✅ Tetapkan Urutan Kolom**.  
+5️⃣ Lihat **Preview (5 baris pertama)** untuk verifikasi, lalu klik **📥 Konversi & Download Excel**.
+
+Jika ingin memulai ulang, klik tombol **🔁 Upload File Baru (Reset Aplikasi)** di atas.
+
+---
+
+### ⚠️ Disclaimer
+Semua proses dilakukan **langsung di perangkat Anda (client-side)**.  
+Tidak ada file yang dikirim, disimpan, atau diproses di server mana pun.  
+**Kerahasiaan dan keamanan data pajak Anda sepenuhnya terjamin.**
+
+---
+
 **By: Reza Fahlevi Lubis BKP @zavibis**
 """)
 
@@ -130,7 +150,7 @@ def extract_tabel_auto(txt):
         return res
 
 # =====================================================
-# RESET APP
+# 🔁 RESET APP
 # =====================================================
 st.markdown('<div id="reset-app">', unsafe_allow_html=True)
 if st.button("🔁 Upload File Baru (Reset Aplikasi)"):
@@ -140,7 +160,7 @@ if st.button("🔁 Upload File Baru (Reset Aplikasi)"):
 st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================
-# STEP 1 — UPLOAD & BACA FILE
+# STEP 1 — UPLOAD & BACA
 # =====================================================
 upl = st.file_uploader("Upload Faktur Pajak (PDF)", type=["pdf"], accept_multiple_files=True)
 if upl and st.button("📖 Baca File", type="primary", key="baca"):
@@ -152,7 +172,8 @@ if upl and st.button("📖 Baca File", type="primary", key="baca"):
         meta["Masa"]=tgl[1] if len(tgl)>1 else "-"; meta["Tahun"]=tgl[2] if len(tgl)>2 else "-"
         items=extract_tabel_auto(txt)
         if not items:
-            items=[{"No":"-","Kode Barang/Jasa":"-","Nama Barang Kena Pajak / Jasa Kena Pajak":"Tidak terbaca",
+            items=[{"No":"-","Kode Barang/Jasa":"-",
+                    "Nama Barang Kena Pajak / Jasa Kena Pajak":"Tidak terbaca",
                     "Harga Jual / Penggantian / Uang Muka / Termin (Rp)":0.0}]
         for it in items: rows.append({**it,**meta})
     df=pd.DataFrame(rows)
@@ -160,7 +181,7 @@ if upl and st.button("📖 Baca File", type="primary", key="baca"):
     st.success(f"✅ {len(df)} baris berhasil dibaca."); st.dataframe(df)
 
 # =====================================================
-# STEP 2 — KONFIRMASI
+# STEP 2 — KONFIRMASI DATA
 # =====================================================
 if st.session_state.step=="cek" and st.session_state.data_faktur is not None:
     st.markdown('<div id="data-sesuai">',unsafe_allow_html=True)
@@ -168,7 +189,7 @@ if st.session_state.step=="cek" and st.session_state.data_faktur is not None:
     st.markdown('</div>',unsafe_allow_html=True)
 
 # =====================================================
-# STEP 3 — URUTKAN KOLOM (Langsung Semua Kolom)
+# STEP 3 — URUTKAN KOLOM
 # =====================================================
 if st.session_state.step in ["urut","preview"] and st.session_state.data_faktur is not None:
     st.markdown("### ↕️ Urutkan Kolom (Drag & Drop)")
