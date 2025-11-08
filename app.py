@@ -67,29 +67,35 @@ def extract_nitku_pembeli(text):
 # 🎯 RINCI ITEM (PAKAI KOLOM “No.” DAN BERHENTI SEBELUM TOTAL)
 # ===============================================================
 def extract_tabel_rinci(text):
-    """Ambil daftar barang berdasarkan kolom No. sampai sebelum total"""
+    """Ambil daftar barang berdasarkan kolom No. sebagai anchor, berhenti sebelum total"""
     result = []
-
-    # potong teks sebelum bagian total
     section_match = re.split(r"\nHarga\s+Jual\s*/\s*Penggantian", text, maxsplit=1)
     body = section_match[0]
 
-    # pola: baris dimulai dengan angka (No.), lalu deskripsi dan harga di bawahnya
-    pattern = re.compile(
-        r"(?m)^\s*(\d+)\s*\n([\s\S]*?)\n\s*([\d.,]+)\s*$"
-    )
+    # Pola blok dimulai angka, berhenti sebelum angka berikutnya atau 'Harga Jual'
+    pattern = re.compile(r"(?m)^\s*(\d+)\s*\n([\s\S]*?)(?=\n\s*\d+\s*\n|Harga\s+Jual|$)")
 
     for m in pattern.finditer(body):
         no = m.group(1).strip()
-        deskripsi = " ".join(m.group(2).split())
-        raw = m.group(3).replace(".", "").replace(",", ".")
-        try:
-            harga = float(raw)
-        except:
-            harga = 0.0
+        blok = m.group(2).strip()
 
-        # pastikan deskripsi benar-benar baris barang, bukan sisa teks
-        if not re.search(r"Harga\s+Jual|Dasar\s+Pengenaan|Jumlah\s+PPN", deskripsi):
+        # Ambil harga terakhir dalam blok
+        harga_match = re.findall(r"([\d.,]+)\s*$", blok, re.MULTILINE)
+        harga = 0.0
+        if harga_match:
+            raw = harga_match[-1].replace(".", "").replace(",", ".")
+            try:
+                harga = float(raw)
+            except:
+                harga = 0.0
+
+        # Bersihkan deskripsi dari baris Rp / potongan / PPnBM
+        deskripsi = re.sub(r"Rp\s*[\d.,]+\s*x.*", "", blok)
+        deskripsi = re.sub(r"Potongan Harga.*", "", deskripsi)
+        deskripsi = re.sub(r"PPnBM.*", "", deskripsi)
+        deskripsi = " ".join(deskripsi.split())
+
+        if deskripsi and not re.search(r"Harga\s+Jual|Dasar\s+Pengenaan", deskripsi):
             result.append({
                 "No": no,
                 "Kode Barang/Jasa": "-",
