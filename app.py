@@ -3,59 +3,77 @@ import pandas as pd
 import fitz
 import re
 from io import BytesIO
-from streamlit_sortables import sort_items  # ✅ untuk drag & drop
+from streamlit_sortables import sort_items
 
 # =====================================================
 # 🧾 EXTRACTOR ISI FAKTUR PAJAK KE EXCEL
 # =====================================================
 
+st.set_page_config(page_title="Extractor Faktur Pajak", layout="wide")
+
+# ====== CSS CUSTOM UNTUK WARNA TOMBOL ======
+st.markdown("""
+<style>
+div.stButton > button:first-child {
+    border-radius: 10px;
+    font-weight: 600;
+    padding: 0.6em 1.2em;
+    border: none;
+}
+div[data-testid="stButton"] button:hover {
+    transform: scale(1.03);
+}
+
+/* Tombol hijau untuk "Baca File" */
+button[kind="primary"] {
+    background-color: #2ecc71 !important;
+    color: white !important;
+}
+
+/* Tombol biru untuk "Pilih Semua" */
+#pilih-semua button {
+    background-color: #3498db !important;
+    color: white !important;
+}
+
+/* Tombol merah untuk "Hapus Semua" */
+#hapus-semua button {
+    background-color: #e74c3c !important;
+    color: white !important;
+}
+
+/* Tombol download */
+.stDownloadButton button {
+    background-color: #27ae60 !important;
+    color: white !important;
+    font-weight: 600;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =====================================================
+# JUDUL & PENJELASAN
+# =====================================================
 st.title("Extractor isi Faktur Pajak ke Excel (Versi Pilih Kolom + Drag & Drop)")
 
 st.markdown("""
-### 📘 Deskripsi Aplikasi
-Aplikasi ini digunakan untuk **mengekstrak isi Faktur Pajak (PDF)** menjadi **file Excel** secara otomatis.  
-Data yang diambil mencakup:
-- Informasi utama faktur (Nomor, Tanggal, Nama PKP, NPWP, Pembeli, dsb)
-- Detail barang/jasa (kode atau deskripsi lengkap)
-- Nilai transaksi (DPP, PPN, PPnBM, potongan, dan total lainnya)
+### 📘 Deskripsi Singkat
+Aplikasi ini mengekstrak isi **Faktur Pajak PDF** menjadi **file Excel** secara otomatis.
 
-### ⚙️ Fungsi Utama
-Extractor ini membantu Anda mengonversi **banyak Faktur Pajak PDF** menjadi Excel secara cepat,  
-tanpa perlu mengetik manual satu per satu.
+### 🧭 Langkah Penggunaan:
+1️⃣ **Upload file PDF Faktur Pajak**  
+2️⃣ Tekan tombol hijau **📖 Baca File**  
+3️⃣ **Pilih kolom** yang ingin disertakan  
+4️⃣ **Atur urutan kolom (drag & drop)**  
+5️⃣ Tekan **📥 Download Excel**
 
----
-
-### 🧩 Panduan Penggunaan
-
-**🗂️ Langkah 1 — Upload File Faktur**
-- Klik tombol **Browse files** untuk memilih satu atau beberapa file PDF Faktur Pajak.
-
-**📖 Langkah 2 — Baca File**
-- Tekan tombol **📖 Baca File** untuk mengekstrak isi faktur.  
-- Hasil pembacaan akan muncul sebagai tabel di layar.
-
-**⚙️ Langkah 3 — Pilih Kolom**
-- Gunakan daftar **Pilih Kolom** untuk menentukan kolom mana yang ingin diekspor ke Excel.  
-- Klik **✅ Pilih Semua Kolom** untuk memilih semuanya, atau **❌ Hapus Semua Kolom** untuk reset.  
-- Anda juga dapat **menyusun ulang urutan kolom** dengan cara **drag & drop** di tampilan kotak biru.
-
-**📊 Langkah 4 — Preview & Download**
-- Pratinjau 5 baris pertama dari kolom yang dipilih akan ditampilkan.  
-- Tekan tombol **📥 Konversi & Download Excel** untuk mengunduh hasil akhir.
-
----
-
-### ⚠️ Disclaimer
-Semua proses dijalankan **langsung di perangkat Anda (client-side)**.  
-Tidak ada file yang diunggah atau disimpan di server.  
-Keamanan dan kerahasiaan dokumen Anda sepenuhnya terjamin.
-
+Semua proses berjalan **di perangkat Anda (client-side)** tanpa upload ke server.
 ---
 **By: Reza Fahlevi Lubis BKP @zavibis**
 """)
 
 # =====================================================
-# KONFIGURASI DASAR
+# KONFIGURASI & FUNGSI PENDUKUNG
 # =====================================================
 bulan_map = {
     "Januari": "01", "Februari": "02", "Maret": "03", "April": "04",
@@ -84,9 +102,6 @@ def extract_nitku(txt):
             if m: return m.group(1)
     return "-"
 
-# =====================================================
-# EKSTRAKSI ISI TABEL FAKTUR
-# =====================================================
 def extract_tabel_dengan_kode(txt):
     result = []
     pat = re.compile(
@@ -146,9 +161,6 @@ def extract_tabel_auto(txt):
     else:
         return extract_tabel_tanpa_kode(txt)
 
-# =====================================================
-# METADATA & TOTAL
-# =====================================================
 def extract_total(txt):
     def val(p):
         m = re.search(p, txt, re.DOTALL)
@@ -160,25 +172,20 @@ def extract_total(txt):
             val(r"Harga\s*Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"),
         "Dikurangi Potongan Harga (Total)":
             val(r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]*)"),
-        "Dikurangi Uang Muka yang telah diterima (Total)":
-            val(r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]*)"),
         "Dasar Pengenaan Pajak (Total)":
             val(r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"),
         "PPN (Total)":
-            val(r"Jumlah\s*PPN.*?([\d.,]+)"),
-        "Jumlah PPnBM (Total)":
-            val(r"Jumlah\s*PPnBM.*?([\d.,]+)")
+            val(r"Jumlah\s*PPN.*?([\d.,]+)")
     }
 
 def extract_meta(txt):
     return {
         "Kode dan Nomor Seri Faktur Pajak": extract(r"Kode dan Nomor Seri Faktur Pajak:\s*(\d+)", txt),
         "Nama PKP": extract(r"Pengusaha Kena Pajak:\s*Nama\s*:\s*(.*?)\s*Alamat", txt),
-        "NPWP PKP": extract(r"Pengusaha Kena Pajak:.*?NPWP\s*:\s*([0-9.]+)", txt),
+        "NPWP PKP": extract(r"NPWP\s*:\s*([0-9.]+)", txt),
         "Nama Pembeli": extract(r"Pembeli Barang Kena Pajak.*?Nama\s*:\s*(.*?)\s*Alamat", txt),
-        "NPWP Pembeli": extract(r"NPWP\s*:\s*([0-9.]+)\s*NIK", txt),
+        "NPWP Pembeli": extract(r"NPWP\s*:\s*([0-9.]+)", txt),
         "NITKU Pembeli": extract_nitku(txt),
-        "Kota": extract(r"\n([A-Z .,]+),\s*\d{1,2}\s+\w+\s+\d{4}", txt),
         "Tanggal Faktur Pajak": extract_tanggal(txt),
         "Penandatangan": extract(r"Ditandatangani secara elektronik\n(.*?)\n", txt)
     }
@@ -188,12 +195,12 @@ def kode_status(k):
     return k[:2], ("Normal" if k[2] == "0" else "Pengganti")
 
 # =====================================================
-# EKSEKUSI: UPLOAD → BACA → PILIH KOLOM → DRAG ORDER → DOWNLOAD
+# EKSEKUSI
 # =====================================================
 upl = st.file_uploader("Upload Faktur Pajak (PDF)", type=["pdf"], accept_multiple_files=True)
 
 if upl:
-    if st.button("📖 Baca File"):
+    if st.button("📖 Baca File", type="primary"):
         rows = []
         for f in upl:
             txt = "".join([p.get_text() for p in fitz.open(stream=f.read(), filetype="pdf")])
@@ -212,32 +219,40 @@ if upl:
                 rows.append({**it, **meta})
 
         df = pd.DataFrame(rows)
-        for c in df.columns:
-            if "Rp" in c or "Total" in c:
-                df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-
         st.session_state["data_faktur"] = df
-        st.success(f"✅ File berhasil dibaca! {len(df)} baris data ditemukan.")
+        st.success(f"✅ {len(df)} baris berhasil dibaca.")
         st.dataframe(df)
 
-# --- Step 2: Pilih Kolom & Urutan ---
+# =====================================================
+# PILIH KOLOM + DRAG ORDER
+# =====================================================
 if "data_faktur" in st.session_state:
     df = st.session_state["data_faktur"]
-
-    st.markdown("### 🧩 Pilih & Atur Urutan Kolom untuk Diekspor")
+    st.markdown("### 🧩 Pilih Kolom dan Urutan")
 
     if "kolom_terpilih" not in st.session_state:
         st.session_state["kolom_terpilih"] = list(df.columns)
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ Pilih Semua Kolom", use_container_width=True):
-            st.session_state["kolom_terpilih"] = list(df.columns)
-            st.experimental_rerun()
+        with st.container():
+            st.markdown('<div id="pilih-semua">', unsafe_allow_html=True)
+            if st.button("✅ Pilih Semua Kolom", use_container_width=True, key="btn_all"):
+                st.session_state["kolom_terpilih"] = list(df.columns)
+                st.session_state["refresh"] = True
+            st.markdown('</div>', unsafe_allow_html=True)
     with col2:
-        if st.button("❌ Hapus Semua Kolom", use_container_width=True):
-            st.session_state["kolom_terpilih"] = []
-            st.experimental_rerun()
+        with st.container():
+            st.markdown('<div id="hapus-semua">', unsafe_allow_html=True)
+            if st.button("❌ Hapus Semua Kolom", use_container_width=True, key="btn_clear"):
+                st.session_state["kolom_terpilih"] = []
+                st.session_state["refresh"] = True
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    # aman untuk rerun
+    if st.session_state.get("refresh", False):
+        st.session_state["refresh"] = False
+        st.rerun()
 
     kolom_default = [
         c for c in st.session_state.get("kolom_terpilih", [])
@@ -269,7 +284,6 @@ if "data_faktur" in st.session_state:
             buf = BytesIO()
             df_filtered.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f")
             buf.seek(0)
-
             st.download_button(
                 "📥 Konversi & Download Excel",
                 buf,
