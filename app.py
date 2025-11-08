@@ -13,8 +13,8 @@ st.title("Rekap Faktur Pajak ke Excel (Multi File)")
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
 Aplikasi ini digunakan untuk **mengekstrak data dari Faktur Pajak PDF** menjadi **file Excel**
-berisi rincian lengkap seperti Kode Faktur, Status, Nama PKP, Pembeli, NITKU, dan bagian total Faktur
-(DPP, Potongan, Uang Muka, Dasar Pengenaan Pajak, PPN, dan PPnBM).
+berisi rincian lengkap seperti Kode Faktur, Status, Nama PKP, Pembeli, NITKU, Harga Jual,
+serta total bagian bawah faktur (DPP, Potongan, Uang Muka, Dasar Pengenaan Pajak, PPN, dan PPnBM).
 
 ### ⚙️ Cara Penggunaan
 1. Upload satu atau beberapa file PDF Faktur Pajak menggunakan tombol di bawah.  
@@ -39,6 +39,7 @@ bulan_map = {
     "Mei": "05", "Juni": "06", "Juli": "07", "Agustus": "08",
     "September": "09", "Oktober": "10", "November": "11", "Desember": "12"
 }
+
 
 def extract(pattern, text, flags=re.DOTALL, default="-", postproc=lambda x: x.strip()):
     match = re.search(pattern, text, flags)
@@ -72,18 +73,21 @@ def extract_tabel_rinci(text):
     """Ambil setiap blok item Faktur dengan harga di bawahnya"""
     result = []
     pattern = re.compile(
-        r"(\d+)\s+(\d{6})\s+([\s\S]*?)\n\s*([\d.]+,[\d]{2})\s*(?=\n\d+\s+\d{6}|\nHarga Jual|$)",
+        r"(\d+)\s+(\d{6})\s+([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+\s+\d{6}|\nHarga Jual|$)",
         re.MULTILINE
     )
     for m in pattern.finditer(text):
         no = m.group(1)
         kode = m.group(2)
         deskripsi = " ".join(m.group(3).split())
-        harga_str = m.group(4).replace(".", "").replace(",", "")
+
+        # perbaikan bug angka *100
+        raw = m.group(4).replace(".", "").replace(",", ".")
         try:
-            harga = float(harga_str)
+            harga = float(raw)
         except:
             harga = 0.0
+
         result.append({
             "No": no,
             "Kode Barang/Jasa": kode,
@@ -99,9 +103,9 @@ def extract_total_section(text):
         m = re.search(pat, text, re.DOTALL)
         if not m:
             return 0.0
-        val = re.sub(r"[^\d]", "", m.group(1))
+        raw = m.group(1).replace(".", "").replace(",", ".")
         try:
-            return float(val)
+            return float(raw)
         except:
             return 0.0
 
@@ -210,7 +214,7 @@ if uploaded_files:
         # ===============================================================
         df = pd.DataFrame(final_rows)
 
-        # konversi kolom total ke float agar bisa hitung di Excel
+        # pastikan kolom total numeric
         total_cols = [
             "Total Harga Jual / Penggantian / Uang Muka / Termin",
             "Dikurangi Potongan Harga (Total)",
