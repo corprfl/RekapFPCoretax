@@ -3,12 +3,13 @@ import pandas as pd
 import fitz
 import re
 from io import BytesIO
+from streamlit_sortables import sort_items  # ✅ Tambahan untuk fitur drag & drop
 
 # =====================================================
 # 🧾 EXTRACTOR ISI FAKTUR PAJAK KE EXCEL
 # =====================================================
 
-st.title("Extractor isi Faktur Pajak ke Excel (Versi Pilih Kolom + Drag Order)")
+st.title("Extractor isi Faktur Pajak ke Excel (Versi Pilih Kolom + Drag & Drop)")
 
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
@@ -36,7 +37,7 @@ tanpa perlu mengetik manual satu per satu.
 **⚙️ Langkah 3 — Pilih Kolom**
 - Gunakan daftar **Pilih Kolom** untuk menentukan kolom mana yang ingin diekspor ke Excel.  
 - Klik **✅ Pilih Semua Kolom** untuk memilih semuanya, atau **❌ Hapus Semua Kolom** untuk reset.  
-- Anda juga dapat **menyusun ulang urutan kolom** dengan cara **drag & drop** pada tabel urutan di bawahnya.
+- Anda juga dapat **menyusun ulang urutan kolom** dengan cara **drag & drop** di tampilan kotak biru.
 
 **📊 Langkah 4 — Preview & Download**
 - Pratinjau 5 baris pertama dari kolom yang dipilih akan ditampilkan.  
@@ -207,12 +208,7 @@ if upl:
 
             items = extract_tabel_auto(txt)
             if not items:
-                items = [{
-                    "No": "-",
-                    "Kode Barang/Jasa": "-",
-                    "Nama Barang Kena Pajak / Jasa Kena Pajak": "Tidak terbaca",
-                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0.0
-                }]
+                items = [{"No": "-", "Kode Barang/Jasa": "-", "Nama Barang Kena Pajak / Jasa Kena Pajak": "Tidak terbaca", "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0.0}]
             for it in items:
                 rows.append({**it, **meta})
 
@@ -250,34 +246,24 @@ if "data_faktur" in st.session_state:
         default=st.session_state["kolom_terpilih"],
         key="kolom_multiselect"
     )
-    st.session_state["kolom_terpilih"] = kolom_terpilih
 
     if kolom_terpilih:
-        st.markdown("### ↕️ Atur Urutan Kolom (Drag & Drop)")
-        urutan_df = pd.DataFrame({"Urutan": range(1, len(kolom_terpilih) + 1),
-                                  "Nama Kolom": kolom_terpilih})
-        urutan_edit = st.data_editor(
-            urutan_df,
-            hide_index=True,
-            use_container_width=True,
-            num_rows="fixed",
-            key="reorder_editor"
-        )
-        urutan_final = urutan_edit["Nama Kolom"].tolist()
-        st.session_state["kolom_terpilih"] = urutan_final
+        st.markdown("### ↕️ Atur Urutan Kolom (Drag & Drop di bawah)")
+        ordered_cols = sort_items(kolom_terpilih, direction="horizontal", multi_containers=False, key="sortable_cols")
 
-        df_filtered = df[urutan_final]
-        st.markdown("### 🔍 Preview Hasil Kolom Terpilih (5 Baris Pertama)")
-        st.dataframe(df_filtered.head(5))
+        if ordered_cols:
+            df_filtered = df[ordered_cols]
+            st.markdown("### 🔍 Preview Hasil Kolom Terpilih (5 Baris Pertama)")
+            st.dataframe(df_filtered.head(5))
 
-        buf = BytesIO()
-        df_filtered.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f")
-        buf.seek(0)
-        st.download_button(
-            "📥 Konversi & Download Excel",
-            buf,
-            "rekap_faktur_terpilih.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            buf = BytesIO()
+            df_filtered.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f")
+            buf.seek(0)
+            st.download_button(
+                "📥 Konversi & Download Excel",
+                buf,
+                "rekap_faktur_terpilih.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
     else:
         st.warning("⚠️ Belum ada kolom yang dipilih.")
