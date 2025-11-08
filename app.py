@@ -7,8 +7,8 @@ st.title("Rekap Faktur Pajak ke Excel (Multi File)")
 
 st.markdown("""
 ### 📘 Deskripsi
-Konversi PDF Faktur Pajak ke Excel. Membaca deskripsi barang/jasa secara utuh dengan deteksi batas atas–bawah yang presisi.  
-Semua proses berlangsung **lokal**, tidak ada file disimpan.
+Konversi PDF Faktur Pajak ke Excel — membaca deskripsi barang/jasa secara utuh, presisi antara batas atas (setelah NITKU) dan batas bawah (sebelum total).  
+Semua proses dilakukan **lokal**, tidak ada file disimpan.
 
 ---
 **By Reza Fahlevi Lubis BKP @zavibis**
@@ -42,42 +42,56 @@ def extract_nitku(txt):
 
 # =========================================================
 def extract_tabel_rinci(txt):
-    """Ambil area antara garis setelah NITKU dan sebelum total"""
-    result=[]
-    # cari batas atas & bawah
-    atas=re.search(r"(#\d{22}.*?\n[-=]{3,}\s*\n)",txt,re.DOTALL)
-    bawah=re.search(r"\n\s*Harga\s+Jual\s*/\s*Penggantian\s*/?\s*Uang\s*Muka\s*/?\s*Termin",txt)
-    if atas and bawah:
-        area=txt[atas.end():bawah.start()]
-    elif atas:
-        area=txt[atas.end():]
-    elif bawah:
-        area=txt[:bawah.start()]
-    else:
-        area=txt
+    """Ambil daftar barang utuh (No x + seluruh deskripsi + harga terakhir)"""
+    result = []
 
-    # deteksi blok No x
-    pattern=re.compile(r"(?m)(No\s*\d+\.?|^\d+\.?)\s*(.*?)(?=(?:No\s*\d+\.?|^\d+\.?|$))",re.DOTALL)
-    for m in pattern.finditer(area):
-        blok=m.group(0).strip()
-        if not blok: continue
-        no=re.search(r"(\d+)",blok)
-        no=no.group(1) if no else "-"
-        harga_match=re.findall(r"([\d.,]+)(?!.*[\d.,])",blok)
-        harga=0.0
-        if harga_match:
-            try: harga=float(harga_match[-1].replace(".","").replace(",","."))
-            except: harga=0.0
-        deskripsi=re.sub(r"^\s*No\s*\d+\.?\s*","",blok)
-        deskripsi=re.sub(r"\s+"," ",deskripsi).strip()
-        if not deskripsi or re.search(r"Harga\s+Jual|Dasar\s+Pengenaan",deskripsi,re.I):
+    # Tentukan batas atas & bawah area barang
+    atas = re.search(r"(#\d{22}.*?\n[-=]{3,}\s*\n)", txt, re.DOTALL)
+    bawah = re.search(r"\n\s*Harga\s+Jual\s*/\s*Penggantian\s*/?\s*Uang\s*Muka\s*/?\s*Termin", txt)
+    if atas and bawah:
+        area = txt[atas.end():bawah.start()]
+    elif atas:
+        area = txt[atas.end():]
+    elif bawah:
+        area = txt[:bawah.start()]
+    else:
+        area = txt
+
+    # Gabungkan semua baris menjadi satu paragraf agar deskripsi tidak pecah
+    lines = [re.sub(r"\s+", " ", l.strip()) for l in area.splitlines() if l.strip()]
+    area = " ".join(lines)
+
+    # Ambil setiap blok mulai dari "No x" sampai "No berikutnya"
+    pattern = re.compile(r"(No\s*\d+\.?\s.*?)(?=No\s*\d+\.?|$)", re.DOTALL)
+    for match in pattern.finditer(area):
+        blok = match.group(1).strip()
+        if not blok:
             continue
-        result.append({
-            "No":no,
-            "Kode Barang/Jasa":"-",
-            "Nama Barang Kena Pajak / Jasa Kena Pajak":deskripsi,
-            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)":harga
-        })
+
+        # Nomor urut
+        no_match = re.search(r"No\s*(\d+)", blok)
+        no = no_match.group(1) if no_match else "-"
+
+        # Harga terakhir
+        harga_match = re.findall(r"([\d.,]+)(?!.*[\d.,])", blok)
+        harga = 0.0
+        if harga_match:
+            try:
+                harga = float(harga_match[-1].replace(".","").replace(",","."))
+            except:
+                harga = 0.0
+
+        # Bersihkan "No x" di depan & jadikan deskripsi satu kalimat rapi
+        deskripsi = re.sub(r"^No\s*\d+\.?\s*", "", blok)
+        deskripsi = re.sub(r"\s+", " ", deskripsi).strip()
+
+        if deskripsi and not re.search(r"Harga\s+Jual|Dasar\s+Pengenaan", deskripsi, re.I):
+            result.append({
+                "No": no,
+                "Kode Barang/Jasa": "-",
+                "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
+                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
+            })
     return result
 
 # =========================================================
@@ -150,7 +164,7 @@ if upl:
             if "Rp" in c or "Total" in c: 
                 df[c]=pd.to_numeric(df[c],errors="coerce").fillna(0.0)
 
-        st.success("✅ Parsing berhasil — batas atas & bawah fix.")
+        st.success("✅ Parsing faktur berhasil — deskripsi utuh & batas atas/bawah akurat.")
         st.dataframe(df)
 
         buf=BytesIO()
