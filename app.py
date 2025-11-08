@@ -4,20 +4,21 @@ import fitz
 import re
 from io import BytesIO
 
-st.title("Rekap Faktur Pajak ke Excel (Multi File) - Versi 3")
+st.title("Rekap Faktur Pajak ke Excel (Multi File) - Versi 4 Final Fix")
 
 st.markdown("""
 ### 📘 Deskripsi
-Aplikasi ini membaca **Faktur Pajak dengan dan tanpa kode barang** secara otomatis.
-- Faktur dengan kode barang → tetap rapi per item.  
-- Faktur tanpa kode barang → deskripsi diambil **utuh** (termasuk baris “x 1,00 Bulan”, “Potongan Harga”, “PPnBM”, dsb).  
+Versi final gabungan:
+- ✅ Bisa baca faktur dengan **atau tanpa kode barang**
+- ✅ Untuk faktur tanpa kode barang, setiap **blok item terbaca utuh**
+- ✅ Harga per item (misal “165.000.000” dan “18.000.000”) terbaca akurat  
 
 ---
 **By: Reza Fahlevi Lubis BKP @zavibis**
 """)
 
 # =====================================================
-# KONFIGURASI DASAR
+# Konfigurasi dasar
 # =====================================================
 bulan_map = {
     "Januari": "01", "Februari": "02", "Maret": "03", "April": "04",
@@ -47,7 +48,7 @@ def extract_nitku(txt):
     return "-"
 
 # =====================================================
-# 1️⃣ Faktur dengan kode barang
+# Faktur dengan kode barang
 # =====================================================
 def extract_tabel_dengan_kode(txt):
     result = []
@@ -71,11 +72,11 @@ def extract_tabel_dengan_kode(txt):
     return result
 
 # =====================================================
-# 2️⃣ Faktur tanpa kode barang (ambil semua deskripsi)
+# Faktur tanpa kode barang (blok per item)
 # =====================================================
 def extract_tabel_tanpa_kode(txt):
     result = []
-    # Pisahkan tiap item berdasarkan nomor urut (1, 2, 3...)
+    # deteksi semua blok item berdasarkan nomor urut
     blocks = re.split(r'\n(?=\d+\s*\n)', txt)
     for blk in blocks:
         blk = blk.strip()
@@ -83,9 +84,12 @@ def extract_tabel_tanpa_kode(txt):
         if not m:
             continue
         no = m.group(1)
-        content = m.group(2)
+        content = m.group(2).strip()
 
-        # Ambil angka terakhir (biasanya harga)
+        # ambil blok hanya sampai sebelum nomor berikutnya / total
+        content = re.split(r'\n(?=\d+\s*$)|\nHarga Jual', content)[0]
+
+        # ambil harga dari baris paling bawah (angka sendiri)
         harga_match = re.findall(r'\b([\d.,]+)\b\s*$', content)
         harga = 0.0
         if harga_match:
@@ -94,10 +98,11 @@ def extract_tabel_tanpa_kode(txt):
             except:
                 harga = 0.0
 
-        # Ambil seluruh deskripsi sebelum angka terakhir
+        # deskripsi = semua baris sebelum angka terakhir
         deskripsi = re.sub(r'\b[\d.,]+\b\s*$', '', content, flags=re.DOTALL)
         deskripsi = re.sub(r'\s+', ' ', deskripsi).strip()
 
+        # hanya tambahkan jika valid
         if len(deskripsi) > 5 and harga > 0:
             result.append({
                 "No": no,
@@ -106,33 +111,32 @@ def extract_tabel_tanpa_kode(txt):
                 "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
             })
 
-    # fallback khusus MANDE
+    # fallback khusus (kalau blok tidak terbaca sama sekali)
     if not result:
-        specific = []
-        for pattern, no in [
+        patterns = [
             (r"Rental\s+Heavy\s+Duty\s+Equipment[\s\S]+?PPnBM.*?=\s*Rp\s*0,00", "1"),
             (r"Double\s+Cabin[\s\S]+?PPnBM.*?=\s*Rp\s*0,00", "2"),
-        ]:
-            m = re.search(pattern, txt, re.IGNORECASE)
+        ]
+        for pat, no in patterns:
+            m = re.search(pat, txt, re.IGNORECASE)
             if m:
                 desc = " ".join(m.group(0).split())
-                harga_match = re.search(r'Rp\s*([\d.,]+)', desc)
+                harga_match = re.findall(r'Rp\s*([\d.,]+)', desc)
                 if harga_match:
                     try:
-                        harga = float(harga_match.group(1).replace('.', '').replace(',', '.'))
+                        harga = float(harga_match[0].replace('.', '').replace(',', '.'))
                     except:
                         harga = 0.0
-                    specific.append({
+                    result.append({
                         "No": no,
                         "Kode Barang/Jasa": "-",
                         "Nama Barang Kena Pajak / Jasa Kena Pajak": desc,
                         "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
                     })
-        result = specific
     return result
 
 # =====================================================
-# 3️⃣ Auto deteksi
+# Auto deteksi tipe faktur
 # =====================================================
 def extract_tabel_auto(txt):
     if re.search(r"\n\s*\d+\s+\d{6}\s+", txt):
@@ -141,7 +145,7 @@ def extract_tabel_auto(txt):
         return extract_tabel_tanpa_kode(txt)
 
 # =====================================================
-# Bagian total & metadata
+# Total & metadata
 # =====================================================
 def extract_total(txt):
     def val(p):
@@ -182,7 +186,7 @@ def kode_status(k):
     return k[:2], ("Normal" if k[2] == "0" else "Pengganti")
 
 # =====================================================
-# EKSEKUSI
+# Eksekusi utama
 # =====================================================
 upl = st.file_uploader("Upload Faktur Pajak (PDF)", type=["pdf"], accept_multiple_files=True)
 if upl:
@@ -215,5 +219,5 @@ if upl:
 
         buf = BytesIO()
         df.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f"); buf.seek(0)
-        st.download_button("📥 Download Excel", buf, "rekap_faktur_v3.xlsx",
+        st.download_button("📥 Download Excel", buf, "rekap_faktur_v4.xlsx",
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
