@@ -64,23 +64,28 @@ def extract_nitku_pembeli(text):
     return "-"
 
 # ===============================================================
-# 🎯 RINCI ITEM (PAKAI KOLOM “No.” DAN BERHENTI SEBELUM TOTAL)
+# 🎯 PARSING RINCIAN BARANG (PAKAI KOLOM “No.”)
 # ===============================================================
 def extract_tabel_rinci(text):
-    """Ambil daftar barang berdasarkan kolom No. sebagai anchor, berhenti sebelum total"""
+    """Ambil daftar barang berdasarkan kolom No., tahan newline & berhenti sebelum total"""
     result = []
+
+    # potong sebelum bagian total
     section_match = re.split(r"\nHarga\s+Jual\s*/\s*Penggantian", text, maxsplit=1)
     body = section_match[0]
 
-    # Pola blok dimulai angka, berhenti sebelum angka berikutnya atau 'Harga Jual'
+    # cari blok dimulai angka dan berakhir sebelum nomor berikutnya / total
     pattern = re.compile(r"(?m)^\s*(\d+)\s*\n([\s\S]*?)(?=\n\s*\d+\s*\n|Harga\s+Jual|$)")
 
     for m in pattern.finditer(body):
         no = m.group(1).strip()
         blok = m.group(2).strip()
 
-        # Ambil harga terakhir dalam blok
-        harga_match = re.findall(r"([\d.,]+)\s*$", blok, re.MULTILINE)
+        # gabungkan baris kosong ganda
+        blok_clean = re.sub(r"\n+", "\n", blok.strip())
+
+        # ambil harga terakhir, walau dipisah newline
+        harga_match = re.findall(r"([\d.,]+)\s*$", blok_clean, re.MULTILINE)
         harga = 0.0
         if harga_match:
             raw = harga_match[-1].replace(".", "").replace(",", ".")
@@ -89,10 +94,11 @@ def extract_tabel_rinci(text):
             except:
                 harga = 0.0
 
-        # Bersihkan deskripsi dari baris Rp / potongan / PPnBM
-        deskripsi = re.sub(r"Rp\s*[\d.,]+\s*x.*", "", blok)
+        # hapus baris yang bukan deskripsi
+        deskripsi = re.sub(r"Rp\s*[\d.,]+\s*x.*", "", blok_clean)
         deskripsi = re.sub(r"Potongan Harga.*", "", deskripsi)
         deskripsi = re.sub(r"PPnBM.*", "", deskripsi)
+        deskripsi = re.sub(r"\d{1,3}(?:\.\d{3})*,\d{2}", "", deskripsi)
         deskripsi = " ".join(deskripsi.split())
 
         if deskripsi and not re.search(r"Harga\s+Jual|Dasar\s+Pengenaan", deskripsi):
@@ -102,6 +108,7 @@ def extract_tabel_rinci(text):
                 "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
                 "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
             })
+
     return result
 
 # ===============================================================
@@ -135,7 +142,7 @@ def extract_total_section(text):
     }
 
 # ===============================================================
-# 🧠 DATA FAKTUR
+# 🧠 DATA HEADER FAKTUR
 # ===============================================================
 def extract_data_from_text(text):
     return {
@@ -162,7 +169,7 @@ def extract_kode_status(kode_seri):
     return kode_faktur, status
 
 # ===============================================================
-# ⚙️ PROSES PDF
+# ⚙️ PROSES UTAMA
 # ===============================================================
 uploaded_files = st.file_uploader("Upload PDF Faktur Pajak", type=["pdf"], accept_multiple_files=True)
 
@@ -208,7 +215,7 @@ if uploaded_files:
 
         df = pd.DataFrame(final_rows)
 
-        # pastikan kolom total numeric
+        # pastikan kolom numeric
         total_cols = [
             "Total Harga Jual / Penggantian / Uang Muka / Termin",
             "Dikurangi Potongan Harga (Total)",
@@ -221,7 +228,7 @@ if uploaded_files:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
-        # urutan kolom
+        # urutan kolom rapi
         order_cols = [
             "Kode Faktur", "Status Faktur", "Kode dan Nomor Seri Faktur Pajak",
             "Nama Pengusaha Kena Pajak", "NPWP Pengusaha Kena Pajak",
