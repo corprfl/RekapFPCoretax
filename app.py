@@ -4,7 +4,36 @@ import fitz
 import re
 from io import BytesIO
 
-st.title("Rekap Faktur Pajak ke Excel (Multi File) - Revisi ke-20251108-1")
+# ===============================================================
+# 🧾 APLIKASI REKAP FAKTUR PAJAK KE EXCEL (MULTI FILE)
+# ===============================================================
+
+st.title("Rekap Faktur Pajak ke Excel (Multi File)")
+
+st.markdown("""
+### 📘 Deskripsi Aplikasi
+Aplikasi ini digunakan untuk **mengekstrak data dari Faktur Pajak PDF** secara otomatis 
+menjadi **file Excel** yang berisi rincian lengkap seperti:
+Kode dan Nomor Seri Faktur Pajak, Nama PKP, Pembeli, NITKU, Harga Jual, DPP, PPN, 
+dan **Tanggal Faktur Pajak**.
+
+### ⚙️ Cara Penggunaan
+1. Upload satu atau beberapa file PDF Faktur Pajak menggunakan tombol di bawah.  
+2. Klik tombol **"Eksekusi Convert"** untuk memproses.  
+3. Setelah proses selesai, hasil akan tampil di layar dan bisa diunduh ke Excel.
+
+### ⚠️ Disclaimer
+- Aplikasi ini **tidak menyimpan file atau data pribadi Anda**.  
+- Semua proses dilakukan **langsung di perangkat lokal Anda (client-side)**.  
+- Hasil file hanya digunakan untuk kebutuhan rekap internal.
+
+---
+**By: Reza Fahlevi Lubis BKP @zavibis**
+""")
+
+# ===============================================================
+# KONFIGURASI DASAR
+# ===============================================================
 
 bulan_map = {
     "Januari": "01", "Februari": "02", "Maret": "03", "April": "04",
@@ -15,6 +44,7 @@ bulan_map = {
 def extract(pattern, text, flags=re.DOTALL, default="-", postproc=lambda x: x.strip()):
     match = re.search(pattern, text, flags)
     return postproc(match.group(1)) if match else default
+
 
 def extract_tanggal(text):
     """Ambil tanggal faktur pajak format dd/mm/yyyy dari teks lokasi + tanggal"""
@@ -27,6 +57,7 @@ def extract_tanggal(text):
         return f"{hari}/{bulan}/{tahun}"
     return "-"
 
+
 def extract_nitku_pembeli(text):
     lines = text.splitlines()
     for i, line in enumerate(lines):
@@ -36,6 +67,7 @@ def extract_nitku_pembeli(text):
             if match:
                 return match.group(1)
     return "-"
+
 
 def extract_tabel_rinci(text):
     """Ambil seluruh blok item sampai PPnBM = Rp 0,00"""
@@ -59,6 +91,7 @@ def extract_tabel_rinci(text):
         })
     return result
 
+
 def extract_data_from_text(text):
     """Ambil seluruh metadata faktur"""
     return {
@@ -77,14 +110,21 @@ def extract_data_from_text(text):
         "Penandatangan": extract(r"Ditandatangani secara elektronik\n(.*?)\n", text),
     }
 
+
+# ===============================================================
+# UPLOAD & PROSES PDF
+# ===============================================================
+
 uploaded_files = st.file_uploader("Upload PDF Faktur Pajak", type=["pdf"], accept_multiple_files=True)
 
 if uploaded_files:
     if st.button("Eksekusi Convert"):
         final_rows = []
+
         for uploaded_file in uploaded_files:
             filename = uploaded_file.name
             pdf_bytes = uploaded_file.read()
+
             with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
                 full_text = "".join([page.get_text() for page in doc])
 
@@ -103,10 +143,12 @@ if uploaded_files:
             # Ekstrak tabel rinci
             rinci = extract_tabel_rinci(full_text)
             if not rinci:
-                # fallback: satu baris tanpa rinci
-                rinci = [{"No": "-", "Kode Barang/Jasa": "-", 
-                          "Nama Barang Kena Pajak / Jasa Kena Pajak": "-", 
-                          "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0}]
+                rinci = [{
+                    "No": "-", 
+                    "Kode Barang/Jasa": "-", 
+                    "Nama Barang Kena Pajak / Jasa Kena Pajak": "-", 
+                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0
+                }]
             
             for row in rinci:
                 merged = {**row, **data}
@@ -129,6 +171,9 @@ if uploaded_files:
                     merged["PPN"] = "-"
                 final_rows.append(merged)
 
+        # ===============================================================
+        # HASIL OUTPUT
+        # ===============================================================
         df = pd.DataFrame(final_rows)
         st.success("✅ Semua file berhasil diekstrak dan dikonversi ke Excel!")
         st.dataframe(df)
@@ -136,9 +181,10 @@ if uploaded_files:
         buffer = BytesIO()
         df.to_excel(buffer, index=False, engine="openpyxl")
         buffer.seek(0)
+
         st.download_button(
             "📥 Download Rekap Excel",
             buffer,
-            file_name="rekap_faktur_revisi_20251108.xlsx",
+            file_name="rekap_faktur.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
