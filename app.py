@@ -68,62 +68,39 @@ def extract_nitku_pembeli(text):
 
 
 # ===============================================================
-# 🔧 FUNGSI RINCI ITEM (TAMBAHAN: TAHAN FORMAT TANPA KODE BARANG)
+# 🔧 RINCI ITEM (TANGANI ADA / TANPA KODE BARANG)
 # ===============================================================
 def extract_tabel_rinci(text):
-    """Ambil setiap blok item Faktur (dengan atau tanpa kode barang)"""
+    """Ambil setiap blok item Faktur (ada atau tidak ada kode barang)"""
     result = []
 
-    # Pola 1 — dengan kode barang
-    pattern_with_code = re.compile(
-        r"(\d+)\s+(\d{6})\s+([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+|\nHarga Jual|$)",
+    # pola fleksibel: nomor urut + opsional kode barang + deskripsi + harga
+    pattern = re.compile(
+        r"(\d+)\s+(?:(\d{6})\s+)?([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+|\nHarga Jual|$)",
         re.MULTILINE
     )
-    matches = list(pattern_with_code.finditer(text))
 
-    # Pola 2 — tanpa kode barang
-    if not matches:
-        pattern_no_code = re.compile(
-            r"(\d+)\s+([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+|\nHarga Jual|$)",
-            re.MULTILINE
-        )
-        matches = list(pattern_no_code.finditer(text))
+    for m in pattern.finditer(text):
+        no = m.group(1)
+        kode = m.group(2) if m.group(2) else "-"
+        deskripsi = " ".join(m.group(3).split())
+        raw = m.group(4).replace(".", "").replace(",", ".")
+        try:
+            harga = float(raw)
+        except:
+            harga = 0.0
 
-        for m in matches:
-            no = m.group(1)
-            deskripsi = " ".join(m.group(2).split())
-            harga_str = m.group(3).replace(".", "").replace(",", ".")
-            try:
-                harga = float(harga_str)
-            except:
-                harga = 0.0
-            result.append({
-                "No": no,
-                "Kode Barang/Jasa": "-",
-                "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
-                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
-            })
-    else:
-        for m in matches:
-            no = m.group(1)
-            kode = m.group(2)
-            deskripsi = " ".join(m.group(3).split())
-            harga_str = m.group(4).replace(".", "").replace(",", ".")
-            try:
-                harga = float(harga_str)
-            except:
-                harga = 0.0
-            result.append({
-                "No": no,
-                "Kode Barang/Jasa": kode,
-                "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
-                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
-            })
-
+        result.append({
+            "No": no,
+            "Kode Barang/Jasa": kode,
+            "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
+            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
+        })
     return result
 
 
 def extract_total_section(text):
+    """Ambil bagian total di bawah tabel"""
     def get_val(pat):
         m = re.search(pat, text, re.DOTALL)
         if not m:
@@ -187,7 +164,6 @@ if uploaded_files:
                 full_text = "".join([page.get_text() for page in doc])
 
             data = extract_data_from_text(full_text)
-
             kode_seri = data.get("Kode dan Nomor Seri Faktur Pajak", "")
             kode_faktur, status = extract_kode_status(kode_seri)
             data["Kode Faktur"] = kode_faktur
@@ -219,6 +195,8 @@ if uploaded_files:
                 final_rows.append(merged)
 
         df = pd.DataFrame(final_rows)
+
+        # pastikan kolom total numeric
         total_cols = [
             "Total Harga Jual / Penggantian / Uang Muka / Termin",
             "Dikurangi Potongan Harga (Total)",
@@ -231,6 +209,23 @@ if uploaded_files:
         for col in total_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+        # urutan kolom tetap rapi seperti versi stabil
+        order_cols = [
+            "Kode Faktur", "Status Faktur", "Kode dan Nomor Seri Faktur Pajak",
+            "Nama Pengusaha Kena Pajak", "NPWP Pengusaha Kena Pajak",
+            "Nama Pembeli Barang/Jasa", "NPWP Pembeli Barang/Jasa", "NITKU Pembeli",
+            "Tanggal Faktur Pajak", "Kota",
+            "Kode Barang/Jasa", "Nama Barang Kena Pajak / Jasa Kena Pajak",
+            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)",
+            "Total Harga Jual / Penggantian / Uang Muka / Termin",
+            "Dikurangi Potongan Harga (Total)",
+            "Dikurangi Uang Muka yang telah diterima (Total)",
+            "Dasar Pengenaan Pajak (Total)",
+            "PPN (Total)", "Jumlah PPnBM (Total)",
+            "Referensi", "Penandatangan", "Nama Asli File", "Masa", "Tahun"
+        ]
+        df = df[[c for c in order_cols if c in df.columns]]
 
         st.success("✅ Semua file berhasil diekstrak dan dikonversi ke Excel!")
         st.dataframe(df)
