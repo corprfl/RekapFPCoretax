@@ -13,7 +13,7 @@ st.title("Rekap Faktur Pajak ke Excel (Multi File)")
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
 Aplikasi ini digunakan untuk **mengekstrak data dari Faktur Pajak PDF** menjadi **file Excel**
-berisi rincian lengkap seperti Kode Faktur, Status, Nama PKP, Pembeli, NITKU, Harga Jual, dan total bagian bawah faktur
+berisi rincian lengkap seperti Kode Faktur, Status, Nama PKP, Pembeli, NITKU, dan bagian total Faktur
 (DPP, Potongan, Uang Muka, Dasar Pengenaan Pajak, PPN, dan PPnBM).
 
 ### ⚙️ Cara Penggunaan
@@ -80,11 +80,15 @@ def extract_tabel_rinci(text):
         kode = m.group(2)
         deskripsi = " ".join(m.group(3).split())
         harga_str = m.group(4).replace(".", "").replace(",", "")
+        try:
+            harga = float(harga_str)
+        except:
+            harga = 0.0
         result.append({
             "No": no,
             "Kode Barang/Jasa": kode,
             "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
-            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga_str
+            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
         })
     return result
 
@@ -94,15 +98,32 @@ def extract_total_section(text):
     def get_val(pat):
         m = re.search(pat, text, re.DOTALL)
         if not m:
-            return "-"
-        return re.sub(r"[^\d]", "", m.group(1))  # hanya angka
+            return 0.0
+        val = re.sub(r"[^\d]", "", m.group(1))
+        try:
+            return float(val)
+        except:
+            return 0.0
+
     return {
-        "Total Harga Jual / Penggantian / Uang Muka / Termin": get_val(r"Harga Jual\s*/\s*Penggantian\s*/\s*Uang Muka\s*/\s*Termin\s*([\d.,]+)"),
-        "Dikurangi Potongan Harga (Total)": get_val(r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]+)"),
-        "Dikurangi Uang Muka yang telah diterima (Total)": get_val(r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]+)"),
-        "Dasar Pengenaan Pajak (Total)": get_val(r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"),
-        "PPN (Total)": get_val(r"Jumlah\s*PPN\s*\(.*?\)\s*([\d.,]+)"),
-        "Jumlah PPnBM (Total)": get_val(r"Jumlah\s*PPnBM\s*\(.*?\)\s*([\d.,]+)")
+        "Total Harga Jual / Penggantian / Uang Muka / Termin": get_val(
+            r"Harga\s+Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"
+        ),
+        "Dikurangi Potongan Harga (Total)": get_val(
+            r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]+)"
+        ),
+        "Dikurangi Uang Muka yang telah diterima (Total)": get_val(
+            r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]+)"
+        ),
+        "Dasar Pengenaan Pajak (Total)": get_val(
+            r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"
+        ),
+        "PPN (Total)": get_val(
+            r"Jumlah\s*PPN\s*\(.*?\)\s*([\d.,]+)"
+        ),
+        "Jumlah PPnBM (Total)": get_val(
+            r"Jumlah\s*PPnBM\s*\(.*?\)\s*([\d.,]+)"
+        )
     }
 
 
@@ -177,7 +198,7 @@ if uploaded_files:
                     "No": "-",
                     "Kode Barang/Jasa": "-",
                     "Nama Barang Kena Pajak / Jasa Kena Pajak": "-",
-                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": "0"
+                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0.0
                 }]
 
             for row in rinci:
@@ -188,11 +209,26 @@ if uploaded_files:
         # HASIL OUTPUT
         # ===============================================================
         df = pd.DataFrame(final_rows)
+
+        # konversi kolom total ke float agar bisa hitung di Excel
+        total_cols = [
+            "Total Harga Jual / Penggantian / Uang Muka / Termin",
+            "Dikurangi Potongan Harga (Total)",
+            "Dikurangi Uang Muka yang telah diterima (Total)",
+            "Dasar Pengenaan Pajak (Total)",
+            "PPN (Total)",
+            "Jumlah PPnBM (Total)",
+            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)"
+        ]
+        for col in total_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
         st.success("✅ Semua file berhasil diekstrak dan dikonversi ke Excel!")
         st.dataframe(df)
 
         buffer = BytesIO()
-        df.to_excel(buffer, index=False, engine="openpyxl")
+        df.to_excel(buffer, index=False, engine="openpyxl", float_format="%.0f")
         buffer.seek(0)
 
         st.download_button(
