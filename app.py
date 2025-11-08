@@ -1,209 +1,11 @@
-import streamlit as st
-import pandas as pd
-import fitz
-import re
-from io import BytesIO
-
 # =====================================================
-# 🧾 EXTRACTOR ISI FAKTUR PAJAK KE EXCEL
-# =====================================================
-
-st.title("Extractor isi Faktur Pajak ke Excel")
-
-st.markdown("""
-### 📘 Deskripsi Aplikasi
-Aplikasi ini digunakan untuk **mengekstrak isi Faktur Pajak (PDF)** menjadi **file Excel**.  
-Data yang diambil mencakup:
-- Informasi faktur (Nomor, Tanggal, Nama PKP, NPWP, Pembeli, dsb)
-- Detail barang/jasa (kode atau deskripsi lengkap)
-- Nilai transaksi (DPP, PPN, PPnBM, potongan, dan total lainnya)
-
-### ⚙️ Fungsi Utama
-Extractor ini membantu Anda membuat rekap cepat dari banyak faktur PDF secara otomatis,  
-tanpa perlu mengetik ulang satu per satu di Excel.
-
-### 🧩 Panduan Penggunaan
-1. Klik tombol **Browse files** di bawah untuk mengunggah satu atau beberapa file PDF Faktur Pajak.  
-2. Tekan tombol **Eksekusi Convert** untuk memulai proses ekstraksi.  
-3. Hasil ekstraksi akan muncul di layar dan dapat diunduh dalam format Excel.
-
-### ⚠️ Disclaimer
-Semua proses dilakukan **langsung di perangkat Anda (client-side)**.  
-Tidak ada file yang dikirim atau disimpan di server.  
-Keamanan dan kerahasiaan dokumen sepenuhnya terjaga.
-
----
-**By: Reza Fahlevi Lubis BKP @zavibis**
-""")
-
-# =====================================================
-# KONFIGURASI DASAR
-# =====================================================
-bulan_map = {
-    "Januari": "01", "Februari": "02", "Maret": "03", "April": "04",
-    "Mei": "05", "Juni": "06", "Juli": "07", "Agustus": "08",
-    "September": "09", "Oktober": "10", "November": "11", "Desember": "12"
-}
-
-def extract(pat, txt, flags=re.DOTALL, default="-"):
-    m = re.search(pat, txt, flags)
-    return m.group(1).strip() if m else default
-
-def extract_tanggal(txt):
-    m = re.search(r"\b([A-Z .,]+),\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", txt)
-    if m:
-        d = m.group(2).zfill(2)
-        b = bulan_map.get(m.group(3), "-")
-        y = m.group(4)
-        return f"{d}/{b}/{y}"
-    return "-"
-
-def extract_nitku(txt):
-    for i, l in enumerate(txt.splitlines()):
-        if "NPWP" in l and i > 0:
-            prev = txt.splitlines()[i-1]
-            m = re.search(r"#(\d{22})", prev)
-            if m: return m.group(1)
-    return "-"
-
-# =====================================================
-# FAKTUR DENGAN KODE BARANG
-# =====================================================
-def extract_tabel_dengan_kode(txt):
-    result = []
-    pat = re.compile(
-        r"(\d+)\s+(\d{6})\s+([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+\s+\d{6}|\nHarga Jual|$)",
-        re.MULTILINE
-    )
-    for m in pat.finditer(txt):
-        no, kode = m.group(1), m.group(2)
-        deskripsi = " ".join(m.group(3).split())
-        try:
-            harga = float(m.group(4).replace(".", "").replace(",", "."))
-        except:
-            harga = 0.0
-        result.append({
-            "No": no,
-            "Kode Barang/Jasa": kode,
-            "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
-            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
-        })
-    return result
-
-# =====================================================
-# FAKTUR TANPA KODE BARANG (BLOK PER ITEM)
-# =====================================================
-def extract_tabel_tanpa_kode(txt):
-    result = []
-    blocks = re.split(r'\n(?=\d+\s*\n)', txt)
-    for blk in blocks:
-        blk = blk.strip()
-        m = re.match(r"(\d+)\s+(.*)", blk, re.DOTALL)
-        if not m:
-            continue
-        no = m.group(1)
-        content = m.group(2).strip()
-        content = re.split(r'\n(?=\d+\s*$)|\nHarga Jual', content)[0]
-
-        harga_match = re.findall(r'\b([\d.,]+)\b\s*$', content)
-        harga = 0.0
-        if harga_match:
-            try:
-                harga = float(harga_match[-1].replace('.', '').replace(',', '.'))
-            except:
-                harga = 0.0
-
-        deskripsi = re.sub(r'\b[\d.,]+\b\s*$', '', content, flags=re.DOTALL)
-        deskripsi = re.sub(r'\s+', ' ', deskripsi).strip()
-
-        if len(deskripsi) > 5 and harga > 0:
-            result.append({
-                "No": no,
-                "Kode Barang/Jasa": "-",
-                "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
-                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
-            })
-
-    # fallback jika tidak terbaca
-    if not result:
-        patterns = [
-            (r"Rental\s+Heavy\s+Duty\s+Equipment[\s\S]+?PPnBM.*?=\s*Rp\s*0,00", "1"),
-            (r"Double\s+Cabin[\s\S]+?PPnBM.*?=\s*Rp\s*0,00", "2"),
-        ]
-        for pat, no in patterns:
-            m = re.search(pat, txt, re.IGNORECASE)
-            if m:
-                desc = " ".join(m.group(0).split())
-                harga_match = re.findall(r'Rp\s*([\d.,]+)', desc)
-                if harga_match:
-                    try:
-                        harga = float(harga_match[0].replace('.', '').replace(',', '.'))
-                    except:
-                        harga = 0.0
-                    result.append({
-                        "No": no,
-                        "Kode Barang/Jasa": "-",
-                        "Nama Barang Kena Pajak / Jasa Kena Pajak": desc,
-                        "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
-                    })
-    return result
-
-# =====================================================
-# DETEKSI OTOMATIS
-# =====================================================
-def extract_tabel_auto(txt):
-    if re.search(r"\n\s*\d+\s+\d{6}\s+", txt):
-        return extract_tabel_dengan_kode(txt)
-    else:
-        return extract_tabel_tanpa_kode(txt)
-
-# =====================================================
-# TOTAL & METADATA
-# =====================================================
-def extract_total(txt):
-    def val(p):
-        m = re.search(p, txt, re.DOTALL)
-        if not m: return 0.0
-        try: return float(m.group(1).replace('.', '').replace(',', '.'))
-        except: return 0.0
-    return {
-        "Total Harga Jual / Penggantian / Uang Muka / Termin":
-            val(r"Harga\s*Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"),
-        "Dikurangi Potongan Harga (Total)":
-            val(r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]*)"),
-        "Dikurangi Uang Muka yang telah diterima (Total)":
-            val(r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]*)"),
-        "Dasar Pengenaan Pajak (Total)":
-            val(r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"),
-        "PPN (Total)":
-            val(r"Jumlah\s*PPN.*?([\d.,]+)"),
-        "Jumlah PPnBM (Total)":
-            val(r"Jumlah\s*PPnBM.*?([\d.,]+)")
-    }
-
-def extract_meta(txt):
-    return {
-        "Kode dan Nomor Seri Faktur Pajak": extract(r"Kode dan Nomor Seri Faktur Pajak:\s*(\d+)", txt),
-        "Nama PKP": extract(r"Pengusaha Kena Pajak:\s*Nama\s*:\s*(.*?)\s*Alamat", txt),
-        "NPWP PKP": extract(r"Pengusaha Kena Pajak:.*?NPWP\s*:\s*([0-9.]+)", txt),
-        "Nama Pembeli": extract(r"Pembeli Barang Kena Pajak.*?Nama\s*:\s*(.*?)\s*Alamat", txt),
-        "NPWP Pembeli": extract(r"NPWP\s*:\s*([0-9.]+)\s*NIK", txt),
-        "NITKU Pembeli": extract_nitku(txt),
-        "Kota": extract(r"\n([A-Z .,]+),\s*\d{1,2}\s+\w+\s+\d{4}", txt),
-        "Tanggal Faktur Pajak": extract_tanggal(txt),
-        "Penandatangan": extract(r"Ditandatangani secara elektronik\n(.*?)\n", txt)
-    }
-
-def kode_status(k):
-    if not k or len(k) < 3: return "-", "-"
-    return k[:2], ("Normal" if k[2] == "0" else "Pengganti")
-
-# =====================================================
-# EKSEKUSI
+# EKSEKUSI DENGAN FITUR PILIH KOLOM + PREVIEW
 # =====================================================
 upl = st.file_uploader("Upload Faktur Pajak (PDF)", type=["pdf"], accept_multiple_files=True)
+
+# --- Step 1: Baca File ---
 if upl:
-    if st.button("Eksekusi Convert"):
+    if st.button("📖 Baca File"):
         rows = []
         for f in upl:
             txt = "".join([p.get_text() for p in fitz.open(stream=f.read(), filetype="pdf")])
@@ -218,7 +20,12 @@ if upl:
 
             items = extract_tabel_auto(txt)
             if not items:
-                items = [{"No": "-", "Kode Barang/Jasa": "-", "Nama Barang Kena Pajak / Jasa Kena Pajak": "Tidak terbaca", "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0.0}]
+                items = [{
+                    "No": "-",
+                    "Kode Barang/Jasa": "-",
+                    "Nama Barang Kena Pajak / Jasa Kena Pajak": "Tidak terbaca",
+                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0.0
+                }]
             for it in items:
                 rows.append({**it, **meta})
 
@@ -227,10 +34,55 @@ if upl:
             if "Rp" in c or "Total" in c:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
 
-        st.success(f"✅ Berhasil! Total {len(df)} baris diekstrak.")
+        st.session_state["data_faktur"] = df
+        st.success(f"✅ File berhasil dibaca! {len(df)} baris data ditemukan.")
         st.dataframe(df)
 
+# --- Step 2: Pilih Kolom ---
+if "data_faktur" in st.session_state:
+    df = st.session_state["data_faktur"]
+
+    st.markdown("### 🧩 Pilih Kolom untuk Diekspor")
+
+    # default semua kolom
+    if "kolom_terpilih" not in st.session_state:
+        st.session_state["kolom_terpilih"] = list(df.columns)
+
+    # tombol pilih semua / hapus semua
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Pilih Semua Kolom"):
+            st.session_state["kolom_terpilih"] = list(df.columns)
+    with col2:
+        if st.button("❌ Hapus Semua Kolom"):
+            st.session_state["kolom_terpilih"] = []
+
+    kolom_terpilih = st.multiselect(
+        "Pilih kolom yang ingin disertakan dalam hasil konversi:",
+        options=list(df.columns),
+        default=st.session_state["kolom_terpilih"],
+        key="kolom_multiselect"
+    )
+
+    # simpan pilihan agar persistent
+    st.session_state["kolom_terpilih"] = kolom_terpilih
+
+    # --- Step 3: Preview hasil kolom terpilih ---
+    if kolom_terpilih:
+        df_filtered = df[kolom_terpilih]
+        st.markdown("### 🔍 Preview Hasil Kolom Terpilih (5 Baris Pertama)")
+        st.dataframe(df_filtered.head(5))
+
+        # --- Step 4: Konversi & Download ---
         buf = BytesIO()
-        df.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f"); buf.seek(0)
-        st.download_button("📥 Download Excel", buf, "rekap_faktur.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        df_filtered.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f")
+        buf.seek(0)
+
+        st.download_button(
+            "📥 Konversi & Download Excel",
+            buf,
+            "rekap_faktur_terpilih.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.warning("⚠️ Belum ada kolom yang dipilih.")
