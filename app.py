@@ -7,7 +7,7 @@ from streamlit_sortables import sort_items
 
 st.set_page_config(page_title="Extractor Faktur Pajak", layout="wide")
 
-# ===== CSS WARNA =====
+# ====== CSS TOMBOL ======
 st.markdown("""
 <style>
 div.stButton > button:first-child {
@@ -15,40 +15,38 @@ div.stButton > button:first-child {
 }
 div[data-testid="stButton"] button:hover{transform:scale(1.03);}
 button[kind="primary"],.stDownloadButton button,
-#tetapkan-kolom button,#urutan-kolom button,#data-sesuai button{
+#data-sesuai button,#urutan-kolom button,#reset-app button{
     background:#2ecc71!important;color:white!important;font-weight:600!important;
 }
-#pilih-semua button{background:#3498db!important;color:white!important;}
-#hapus-semua button{background:#e74c3c!important;color:white!important;}
+#reset-app button{background:#f39c12!important;}
 </style>
 """, unsafe_allow_html=True)
 
-# ======= INIT STATE =======
-for key, default in {
-    "step": None, "data_faktur": None,
-    "kolom_terpilih": None, "ordered_cols": None
-}.items():
-    if key not in st.session_state:
-        st.session_state[key] = default
+# ====== INIT STATE ======
+for k, v in {"step": None, "data_faktur": None, "ordered_cols": None}.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 # =====================================================
-# JUDUL DAN DESKRIPSI
+# JUDUL & PANDUAN
 # =====================================================
-st.title("Extractor isi Faktur Pajak ke Excel (Anti-Rerun Version)")
+st.title("Extractor isi Faktur Pajak ke Excel (Versi Drag & Drop Langsung)")
 st.markdown("""
-**Flow:**  
-1️⃣ Upload Faktur Pajak → 📖 Baca File  
-2️⃣ ✅ Data Sesuai → Pilih Kolom  
-3️⃣ ✅ Tetapkan Kolom Terpilih  
-4️⃣ ↕️ Urutkan Kolom → ✅ Tetapkan Urutan  
-5️⃣ 🔍 Preview → 📥 Download Excel  
+**Alur singkat:**
+1️⃣ Upload Faktur Pajak (PDF)  
+2️⃣ 📖 Baca File → Preview  
+3️⃣ ✅ Data Sesuai  
+4️⃣ ↕️ Urutkan Kolom (Drag & Drop)  
+5️⃣ ✅ Tetapkan Urutan Kolom  
+6️⃣ 🔍 Preview & 📥 Download Excel  
+
+Semua proses lokal, **tidak ada file dikirim ke server.**  
 ---
-Semua proses berjalan lokal (client-side).  
 **By: Reza Fahlevi Lubis BKP @zavibis**
 """)
 
 # =====================================================
-# UTILITAS
+# UTILITAS EKSTRAKSI
 # =====================================================
 bulan_map = {"Januari":"01","Februari":"02","Maret":"03","April":"04",
     "Mei":"05","Juni":"06","Juli":"07","Agustus":"08",
@@ -78,35 +76,44 @@ def extract_total(txt):
         try:return float(m.group(1).replace(".","").replace(",","."))
         except:return 0.0
     return {
+        "Total Harga Jual / Penggantian / Uang Muka / Termin":
+            val(r"Harga\s*Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"),
+        "Dikurangi Potongan Harga (Total)":
+            val(r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]*)"),
+        "Dikurangi Uang Muka yang telah diterima (Total)":
+            val(r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]*)"),
         "Dasar Pengenaan Pajak (Total)":val(r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"),
-        "PPN (Total)":val(r"Jumlah\s*PPN.*?([\d.,]+)")
+        "PPN (Total)":val(r"Jumlah\s*PPN.*?([\d.,]+)"),
+        "Jumlah PPnBM (Total)":val(r"Jumlah\s*PPnBM.*?([\d.,]+)")
     }
 
 def extract_meta(txt):
     return {
         "Kode dan Nomor Seri Faktur Pajak":extract(r"Kode dan Nomor Seri Faktur Pajak:\s*(\d+)",txt),
         "Nama PKP":extract(r"Pengusaha Kena Pajak:\s*Nama\s*:\s*(.*?)\s*Alamat",txt),
-        "NPWP PKP":extract(r"NPWP\s*:\s*([0-9.]+)",txt),
+        "NPWP PKP":extract(r"Pengusaha Kena Pajak:.*?NPWP\s*:\s*([0-9.]+)",txt),
         "Nama Pembeli":extract(r"Pembeli Barang Kena Pajak.*?Nama\s*:\s*(.*?)\s*Alamat",txt),
         "NPWP Pembeli":extract(r"NPWP\s*:\s*([0-9.]+)\s*NIK",txt),
         "NITKU Pembeli":extract_nitku(txt),
-        "Tanggal Faktur Pajak":extract_tanggal(txt)
+        "Kota":extract(r"\n([A-Z .,]+),\s*\d{1,2}\s+\w+\s+\d{4}",txt),
+        "Tanggal Faktur Pajak":extract_tanggal(txt),
+        "Penandatangan":extract(r"Ditandatangani secara elektronik\n(.*?)\n",txt)
     }
 
 def extract_tabel_auto(txt):
     if re.search(r"\n\s*\d+\s+\d{6}\s+",txt):
         pat=re.compile(r"(\d+)\s+(\d{6})\s+([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+\s+\d{6}|\nHarga Jual|$)",re.M)
-        result=[]
+        res=[]
         for m in pat.finditer(txt):
-            result.append({
+            res.append({
                 "No":m.group(1),"Kode Barang/Jasa":m.group(2),
                 "Nama Barang Kena Pajak / Jasa Kena Pajak":" ".join(m.group(3).split()),
                 "Harga Jual / Penggantian / Uang Muka / Termin (Rp)":
                     float(m.group(4).replace(".","").replace(",","."))
             })
-        return result
+        return res
     else:
-        result=[]
+        res=[]
         blocks=re.split(r'\n(?=\d+\s*\n)',txt)
         for blk in blocks:
             blk=blk.strip()
@@ -117,17 +124,26 @@ def extract_tabel_auto(txt):
             harga=float(harga_match[-1].replace(".","").replace(",","."))
             deskripsi=re.sub(r'\b[\d.,]+\b\s*$','',content).strip()
             if len(deskripsi)>5 and harga>0:
-                result.append({
-                    "No":no,"Kode Barang/Jasa":"-",
-                    "Nama Barang Kena Pajak / Jasa Kena Pajak":deskripsi,
-                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)":harga})
-        return result
+                res.append({"No":no,"Kode Barang/Jasa":"-",
+                            "Nama Barang Kena Pajak / Jasa Kena Pajak":deskripsi,
+                            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)":harga})
+        return res
 
 # =====================================================
-# STEP 1 — UPLOAD DAN BACA
+# RESET APP
 # =====================================================
-upl = st.file_uploader("Upload Faktur Pajak (PDF)",type=["pdf"],accept_multiple_files=True)
-if upl and st.button("📖 Baca File",type="primary",key="baca"):
+st.markdown('<div id="reset-app">', unsafe_allow_html=True)
+if st.button("🔁 Upload File Baru (Reset Aplikasi)"):
+    for k in list(st.session_state.keys()):
+        st.session_state[k] = None
+    st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
+
+# =====================================================
+# STEP 1 — UPLOAD & BACA FILE
+# =====================================================
+upl = st.file_uploader("Upload Faktur Pajak (PDF)", type=["pdf"], accept_multiple_files=True)
+if upl and st.button("📖 Baca File", type="primary", key="baca"):
     rows=[]
     for f in upl:
         txt="".join([p.get_text() for p in fitz.open(stream=f.read(),filetype="pdf")])
@@ -136,8 +152,7 @@ if upl and st.button("📖 Baca File",type="primary",key="baca"):
         meta["Masa"]=tgl[1] if len(tgl)>1 else "-"; meta["Tahun"]=tgl[2] if len(tgl)>2 else "-"
         items=extract_tabel_auto(txt)
         if not items:
-            items=[{"No":"-","Kode Barang/Jasa":"-",
-                    "Nama Barang Kena Pajak / Jasa Kena Pajak":"Tidak terbaca",
+            items=[{"No":"-","Kode Barang/Jasa":"-","Nama Barang Kena Pajak / Jasa Kena Pajak":"Tidak terbaca",
                     "Harga Jual / Penggantian / Uang Muka / Termin (Rp)":0.0}]
         for it in items: rows.append({**it,**meta})
     df=pd.DataFrame(rows)
@@ -149,46 +164,25 @@ if upl and st.button("📖 Baca File",type="primary",key="baca"):
 # =====================================================
 if st.session_state.step=="cek" and st.session_state.data_faktur is not None:
     st.markdown('<div id="data-sesuai">',unsafe_allow_html=True)
-    if st.button("✅ Data Sesuai",key="data_ok"): st.session_state.step="pilih"
+    if st.button("✅ Data Sesuai", key="data_ok"): st.session_state.step="urut"
     st.markdown('</div>',unsafe_allow_html=True)
 
 # =====================================================
-# STEP 3 — PILIH KOLOM (PAKAI FORM ANTI-RERUN)
+# STEP 3 — URUTKAN KOLOM (Langsung Semua Kolom)
 # =====================================================
-if st.session_state.step in ["pilih","urut","preview"]:
-    df=st.session_state.data_faktur
-    kolom_tersedia=list(df.columns)
-    if st.session_state.kolom_terpilih is None:
-        st.session_state.kolom_terpilih=kolom_tersedia
-
-    with st.form("form_kolom"):
-        st.markdown("### 🧩 Pilih Kolom yang Akan Dikonversi")
-        col1,col2=st.columns(2)
-        with col1:
-            st.form_submit_button("✅ Pilih Semua Kolom",on_click=lambda:st.session_state.update(kolom_terpilih=kolom_tersedia))
-        with col2:
-            st.form_submit_button("❌ Hapus Semua Kolom",on_click=lambda:st.session_state.update(kolom_terpilih=[]))
-        kolom_terpilih=st.multiselect("Pilih kolom:",
-            options=kolom_tersedia,
-            default=[c for c in st.session_state.kolom_terpilih if c in kolom_tersedia],
-            key="multi")
-        submit=st.form_submit_button("✅ Tetapkan Kolom Terpilih")
-        if submit and kolom_terpilih:
-            st.session_state.kolom_terpilih=kolom_terpilih
-            st.session_state.step="urut"
-
-# =====================================================
-# STEP 4 — URUTKAN KOLOM
-# =====================================================
-if st.session_state.step in ["urut","preview"] and st.session_state.kolom_terpilih:
+if st.session_state.step in ["urut","preview"] and st.session_state.data_faktur is not None:
     st.markdown("### ↕️ Urutkan Kolom (Drag & Drop)")
-    ordered=sort_items(st.session_state.kolom_terpilih,direction="horizontal",multi_containers=False,key="sortcols")
+    df=st.session_state.data_faktur
+    cols=list(df.columns)
+    ordered=sort_items(cols, direction="horizontal", multi_containers=False, key="sortcols")
     st.session_state.ordered_cols=ordered
-    if st.button("↕️ Tetapkan Urutan Kolom",key="btn_order"):
+    st.markdown('<div id="urutan-kolom">', unsafe_allow_html=True)
+    if st.button("✅ Tetapkan Urutan Kolom"):
         if ordered: st.session_state.step="preview"
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================
-# STEP 5 — PREVIEW & DOWNLOAD
+# STEP 4 — PREVIEW & DOWNLOAD
 # =====================================================
 if st.session_state.step=="preview" and st.session_state.ordered_cols:
     df=st.session_state.data_faktur
