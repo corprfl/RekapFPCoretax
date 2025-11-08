@@ -12,20 +12,19 @@ st.title("Rekap Faktur Pajak ke Excel (Multi File)")
 
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
-Aplikasi ini digunakan untuk **mengekstrak data dari Faktur Pajak PDF** secara otomatis 
-menjadi **file Excel** yang berisi rincian lengkap seperti:
-Kode dan Nomor Seri Faktur Pajak, Nama PKP, Pembeli, NITKU, Harga Jual, DPP, PPN, 
+Aplikasi ini digunakan untuk **mengekstrak data dari Faktur Pajak PDF** menjadi **file Excel**
+berisi rincian lengkap seperti Kode Faktur, Nama PKP, Pembeli, NITKU, Harga Jual, DPP, PPN,
 dan **Tanggal Faktur Pajak**.
 
 ### ⚙️ Cara Penggunaan
 1. Upload satu atau beberapa file PDF Faktur Pajak menggunakan tombol di bawah.  
-2. Klik tombol **"Eksekusi Convert"** untuk memproses.  
-3. Setelah proses selesai, hasil akan tampil di layar dan bisa diunduh ke Excel.
+2. Klik **"Eksekusi Convert"** untuk memproses.  
+3. Setelah selesai, hasil tampil di layar dan bisa diunduh ke Excel.
 
 ### ⚠️ Disclaimer
-- Aplikasi ini **tidak menyimpan file atau data pribadi Anda**.  
+- Aplikasi **tidak menyimpan file atau data pribadi Anda**.  
 - Semua proses dilakukan **langsung di perangkat lokal Anda (client-side)**.  
-- Hasil file hanya digunakan untuk kebutuhan rekap internal.
+- Hasil hanya untuk kebutuhan rekap internal.
 
 ---
 **By: Reza Fahlevi Lubis BKP @zavibis**
@@ -47,18 +46,18 @@ def extract(pattern, text, flags=re.DOTALL, default="-", postproc=lambda x: x.st
 
 
 def extract_tanggal(text):
-    """Ambil tanggal faktur pajak format dd/mm/yyyy dari teks lokasi + tanggal"""
+    """Ambil tanggal faktur pajak format dd/mm/yyyy"""
     match = re.search(r"\b([A-Z .,]+),\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", text)
     if match:
         hari = match.group(2).zfill(2)
-        bulan_huruf = match.group(3)
-        bulan = bulan_map.get(bulan_huruf, "-")
+        bulan = bulan_map.get(match.group(3), "-")
         tahun = match.group(4)
         return f"{hari}/{bulan}/{tahun}"
     return "-"
 
 
 def extract_nitku_pembeli(text):
+    """Ambil NITKU dari akhir alamat pembeli (setelah tanda #)"""
     lines = text.splitlines()
     for i, line in enumerate(lines):
         if "NPWP" in line and i > 0:
@@ -70,30 +69,32 @@ def extract_nitku_pembeli(text):
 
 
 def extract_tabel_rinci(text):
-    """Ambil seluruh blok item sampai PPnBM = Rp 0,00"""
+    """Ambil setiap blok item Faktur dengan harga di bawahnya"""
     result = []
     pattern = re.compile(
-        r"(\d+)\s+(\d{6})\s+([\s\S]*?PPnBM\s*\(.*?\)\s*=\s*Rp\s*0,00)\s*([\d.]+,[\d]{2})",
+        r"(\d+)\s+(\d{6})\s+([\s\S]*?)\n\s*([\d.]+,[\d]{2})\s*(?=\n\d+\s+\d{6}|\nHarga Jual|$)",
         re.MULTILINE
     )
     for m in pattern.finditer(text):
-        nama_brg = " ".join(m.group(3).split())
+        no = m.group(1)
+        kode = m.group(2)
+        deskripsi = " ".join(m.group(3).split())
         harga_str = m.group(4).replace(".", "").replace(",", ".")
         try:
             harga = float(harga_str)
         except:
-            harga = 0
+            harga = 0.0
         result.append({
-            "No": m.group(1),
-            "Kode Barang/Jasa": m.group(2),
-            "Nama Barang Kena Pajak / Jasa Kena Pajak": nama_brg,
+            "No": no,
+            "Kode Barang/Jasa": kode,
+            "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
             "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
         })
     return result
 
 
 def extract_data_from_text(text):
-    """Ambil seluruh metadata faktur"""
+    """Ambil metadata Faktur"""
     return {
         "Kode dan Nomor Seri Faktur Pajak": extract(r"Kode dan Nomor Seri Faktur Pajak:\s*(\d+)", text),
         "Nama Pengusaha Kena Pajak": extract(r"Pengusaha Kena Pajak:\s*Nama\s*:\s*(.*?)\s*Alamat", text),
@@ -110,7 +111,6 @@ def extract_data_from_text(text):
         "Penandatangan": extract(r"Ditandatangani secara elektronik\n(.*?)\n", text),
     }
 
-
 # ===============================================================
 # UPLOAD & PROSES PDF
 # ===============================================================
@@ -124,7 +124,6 @@ if uploaded_files:
         for uploaded_file in uploaded_files:
             filename = uploaded_file.name
             pdf_bytes = uploaded_file.read()
-
             with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
                 full_text = "".join([page.get_text() for page in doc])
 
@@ -140,16 +139,15 @@ if uploaded_files:
                 data["Masa"] = "-"
                 data["Tahun"] = "-"
 
-            # Ekstrak tabel rinci
             rinci = extract_tabel_rinci(full_text)
             if not rinci:
                 rinci = [{
-                    "No": "-", 
-                    "Kode Barang/Jasa": "-", 
-                    "Nama Barang Kena Pajak / Jasa Kena Pajak": "-", 
+                    "No": "-",
+                    "Kode Barang/Jasa": "-",
+                    "Nama Barang Kena Pajak / Jasa Kena Pajak": "-",
                     "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0
                 }]
-            
+
             for row in rinci:
                 merged = {**row, **data}
                 try:
