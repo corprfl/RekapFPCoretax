@@ -22,8 +22,8 @@ serta total bagian bawah faktur (DPP, Potongan, Uang Muka, Dasar Pengenaan Pajak
 3. Setelah selesai, hasil tampil di layar dan bisa diunduh ke Excel.
 
 ### ⚠️ Disclaimer
-- Aplikasi **tidak menyimpan file atau data pribadi Anda**.  
-- Semua proses dilakukan **langsung di perangkat lokal Anda (client-side)**.  
+- Aplikasi **tidak menyimpan file atau data pribadi Anda.**  
+- Semua proses dilakukan **langsung di perangkat lokal Anda (client-side).**  
 - Hasil hanya untuk kebutuhan rekap internal.
 
 ---
@@ -64,18 +64,20 @@ def extract_nitku_pembeli(text):
     return "-"
 
 # ===============================================================
-# 🎯 RINCI ITEM (PAKAI KOLOM “No.” SEBAGAI ANCHOR)
+# 🎯 RINCI ITEM (PAKAI KOLOM “No.” DAN BERHENTI SEBELUM TOTAL)
 # ===============================================================
 def extract_tabel_rinci(text):
-    """Ambil daftar barang berdasarkan kolom No."""
+    """Ambil daftar barang berdasarkan kolom No. sampai sebelum total"""
     result = []
 
-    # ambil hanya bagian sebelum total
+    # potong teks sebelum bagian total
     section_match = re.split(r"\nHarga\s+Jual\s*/\s*Penggantian", text, maxsplit=1)
     body = section_match[0]
 
-    # pola: baris diawali angka (No.) kemudian deskripsi dan harga di bawahnya
-    pattern = re.compile(r"(?m)^\s*(\d+)\s*\n([\s\S]*?)\n\s*([\d.,]+)\s*$")
+    # pola: baris dimulai dengan angka (No.), lalu deskripsi dan harga di bawahnya
+    pattern = re.compile(
+        r"(?m)^\s*(\d+)\s*\n([\s\S]*?)\n\s*([\d.,]+)\s*$"
+    )
 
     for m in pattern.finditer(body):
         no = m.group(1).strip()
@@ -86,18 +88,21 @@ def extract_tabel_rinci(text):
         except:
             harga = 0.0
 
-        result.append({
-            "No": no,
-            "Kode Barang/Jasa": "-",
-            "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
-            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
-        })
+        # pastikan deskripsi benar-benar baris barang, bukan sisa teks
+        if not re.search(r"Harga\s+Jual|Dasar\s+Pengenaan|Jumlah\s+PPN", deskripsi):
+            result.append({
+                "No": no,
+                "Kode Barang/Jasa": "-",
+                "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
+                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
+            })
     return result
 
 # ===============================================================
 # 💰 TOTAL SECTION
 # ===============================================================
 def extract_total_section(text):
+    """Ambil bagian total di bawah tabel"""
     def get_val(pat):
         m = re.search(pat, text, re.DOTALL)
         if not m:
@@ -124,7 +129,7 @@ def extract_total_section(text):
     }
 
 # ===============================================================
-# 🧠 METADATA FAKTUR
+# 🧠 DATA FAKTUR
 # ===============================================================
 def extract_data_from_text(text):
     return {
