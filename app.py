@@ -47,7 +47,6 @@ def extract(pattern, text, flags=re.DOTALL, default="-", postproc=lambda x: x.st
 
 
 def extract_tanggal(text):
-    """Ambil tanggal faktur pajak format dd/mm/yyyy"""
     match = re.search(r"\b([A-Z .,]+),\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", text)
     if match:
         hari = match.group(2).zfill(2)
@@ -58,7 +57,6 @@ def extract_tanggal(text):
 
 
 def extract_nitku_pembeli(text):
-    """Ambil NITKU dari akhir alamat pembeli (setelah tanda #)"""
     lines = text.splitlines()
     for i, line in enumerate(lines):
         if "NPWP" in line and i > 0:
@@ -69,36 +67,63 @@ def extract_nitku_pembeli(text):
     return "-"
 
 
+# ===============================================================
+# 🔧 FUNGSI RINCI ITEM (TAMBAHAN: TAHAN FORMAT TANPA KODE BARANG)
+# ===============================================================
 def extract_tabel_rinci(text):
-    """Ambil setiap blok item Faktur dengan harga di bawahnya"""
+    """Ambil setiap blok item Faktur (dengan atau tanpa kode barang)"""
     result = []
-    pattern = re.compile(
-        r"(\d+)\s+(\d{6})\s+([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+\s+\d{6}|\nHarga Jual|$)",
+
+    # Pola 1 — dengan kode barang
+    pattern_with_code = re.compile(
+        r"(\d+)\s+(\d{6})\s+([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+|\nHarga Jual|$)",
         re.MULTILINE
     )
-    for m in pattern.finditer(text):
-        no = m.group(1)
-        kode = m.group(2)
-        deskripsi = " ".join(m.group(3).split())
+    matches = list(pattern_with_code.finditer(text))
 
-        # perbaikan bug angka *100
-        raw = m.group(4).replace(".", "").replace(",", ".")
-        try:
-            harga = float(raw)
-        except:
-            harga = 0.0
+    # Pola 2 — tanpa kode barang
+    if not matches:
+        pattern_no_code = re.compile(
+            r"(\d+)\s+([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+|\nHarga Jual|$)",
+            re.MULTILINE
+        )
+        matches = list(pattern_no_code.finditer(text))
 
-        result.append({
-            "No": no,
-            "Kode Barang/Jasa": kode,
-            "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
-            "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
-        })
+        for m in matches:
+            no = m.group(1)
+            deskripsi = " ".join(m.group(2).split())
+            harga_str = m.group(3).replace(".", "").replace(",", ".")
+            try:
+                harga = float(harga_str)
+            except:
+                harga = 0.0
+            result.append({
+                "No": no,
+                "Kode Barang/Jasa": "-",
+                "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
+                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
+            })
+    else:
+        for m in matches:
+            no = m.group(1)
+            kode = m.group(2)
+            deskripsi = " ".join(m.group(3).split())
+            harga_str = m.group(4).replace(".", "").replace(",", ".")
+            try:
+                harga = float(harga_str)
+            except:
+                harga = 0.0
+            result.append({
+                "No": no,
+                "Kode Barang/Jasa": kode,
+                "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
+                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
+            })
+
     return result
 
 
 def extract_total_section(text):
-    """Ambil bagian total di bawah tabel faktur"""
     def get_val(pat):
         m = re.search(pat, text, re.DOTALL)
         if not m:
@@ -110,29 +135,16 @@ def extract_total_section(text):
             return 0.0
 
     return {
-        "Total Harga Jual / Penggantian / Uang Muka / Termin": get_val(
-            r"Harga\s+Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"
-        ),
-        "Dikurangi Potongan Harga (Total)": get_val(
-            r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]+)"
-        ),
-        "Dikurangi Uang Muka yang telah diterima (Total)": get_val(
-            r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]+)"
-        ),
-        "Dasar Pengenaan Pajak (Total)": get_val(
-            r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"
-        ),
-        "PPN (Total)": get_val(
-            r"Jumlah\s*PPN\s*\(.*?\)\s*([\d.,]+)"
-        ),
-        "Jumlah PPnBM (Total)": get_val(
-            r"Jumlah\s*PPnBM\s*\(.*?\)\s*([\d.,]+)"
-        )
+        "Total Harga Jual / Penggantian / Uang Muka / Termin": get_val(r"Harga\s+Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"),
+        "Dikurangi Potongan Harga (Total)": get_val(r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]+)"),
+        "Dikurangi Uang Muka yang telah diterima (Total)": get_val(r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]+)"),
+        "Dasar Pengenaan Pajak (Total)": get_val(r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"),
+        "PPN (Total)": get_val(r"Jumlah\s*PPN\s*\(.*?\)\s*([\d.,]+)"),
+        "Jumlah PPnBM (Total)": get_val(r"Jumlah\s*PPnBM\s*\(.*?\)\s*([\d.,]+)")
     }
 
 
 def extract_data_from_text(text):
-    """Ambil metadata Faktur"""
     return {
         "Kode dan Nomor Seri Faktur Pajak": extract(r"Kode dan Nomor Seri Faktur Pajak:\s*(\d+)", text),
         "Nama Pengusaha Kena Pajak": extract(r"Pengusaha Kena Pajak:\s*Nama\s*:\s*(.*?)\s*Alamat", text),
@@ -150,7 +162,6 @@ def extract_data_from_text(text):
 
 
 def extract_kode_status(kode_seri):
-    """Ambil kode faktur (2 digit awal) dan status (Normal/Pengganti) dari nomor seri"""
     if not kode_seri or len(kode_seri) < 3:
         return "-", "-"
     kode_faktur = kode_seri[:2]
@@ -177,17 +188,15 @@ if uploaded_files:
 
             data = extract_data_from_text(full_text)
 
-            # ambil Kode Faktur & Status
             kode_seri = data.get("Kode dan Nomor Seri Faktur Pajak", "")
             kode_faktur, status = extract_kode_status(kode_seri)
             data["Kode Faktur"] = kode_faktur
             data["Status Faktur"] = status
-
             data["Nama Asli File"] = filename
+
             total_section = extract_total_section(full_text)
             data.update(total_section)
 
-            # ambil bulan & tahun dari tanggal
             try:
                 tgl_parts = data["Tanggal Faktur Pajak"].split("/")
                 data["Masa"] = tgl_parts[1]
@@ -209,12 +218,7 @@ if uploaded_files:
                 merged = {**row, **data}
                 final_rows.append(merged)
 
-        # ===============================================================
-        # HASIL OUTPUT
-        # ===============================================================
         df = pd.DataFrame(final_rows)
-
-        # pastikan kolom total numeric
         total_cols = [
             "Total Harga Jual / Penggantian / Uang Muka / Termin",
             "Dikurangi Potongan Harga (Total)",
