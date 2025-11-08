@@ -36,7 +36,7 @@ for k, v in {"step": None, "data_faktur": None, "ordered_cols": None}.items():
 # =====================================================
 # HEADER & DESKRIPSI
 # =====================================================
-st.title("🐾 Extractor isi Faktur Pajak ke Excel (Versi Drag & Drop Kucing)")
+st.title("🐾 Extractor isi Faktur Pajak Coretax ke Excel")
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
 Aplikasi ini digunakan untuk **mengekstrak isi Faktur Pajak (PDF)** menjadi **file Excel secara otomatis**.  
