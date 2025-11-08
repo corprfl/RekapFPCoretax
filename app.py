@@ -8,47 +8,48 @@ from io import BytesIO
 # 🧾 EXTRACTOR ISI FAKTUR PAJAK KE EXCEL
 # =====================================================
 
-st.title("Extractor isi Faktur Pajak ke Excel (Versi Pilih Kolom + Preview)")
+st.title("Extractor isi Faktur Pajak ke Excel (Versi Pilih Kolom + Drag Order)")
 
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
 Aplikasi ini digunakan untuk **mengekstrak isi Faktur Pajak (PDF)** menjadi **file Excel** secara otomatis.  
-Data yang diambil meliputi:
+Data yang diambil mencakup:
 - Informasi utama faktur (Nomor, Tanggal, Nama PKP, NPWP, Pembeli, dsb)
-- Rincian barang/jasa (kode, deskripsi, jumlah, harga)
+- Detail barang/jasa (kode atau deskripsi lengkap)
 - Nilai transaksi (DPP, PPN, PPnBM, potongan, dan total lainnya)
 
 ### ⚙️ Fungsi Utama
-Dengan aplikasi ini, Anda dapat mengonversi **banyak faktur pajak PDF** ke Excel hanya dalam beberapa detik —  
+Extractor ini membantu Anda mengonversi **banyak Faktur Pajak PDF** menjadi Excel secara cepat,  
 tanpa perlu mengetik manual satu per satu.
 
 ---
 
 ### 🧩 Panduan Penggunaan
 
-**Langkah 1 — Upload File Faktur Pajak**
-- Klik tombol **Browse files** di bawah untuk memilih satu atau beberapa file PDF Faktur Pajak.  
+**🗂️ Langkah 1 — Upload File Faktur**
+- Klik tombol **Browse files** untuk memilih satu atau beberapa file PDF Faktur Pajak.
 
-**Langkah 2 — Baca File**
-- Tekan tombol **📖 Baca File** untuk mulai membaca isi file dan menampilkan hasil ekstraksi awal di layar.  
+**📖 Langkah 2 — Baca File**
+- Tekan tombol **📖 Baca File** untuk mengekstrak isi faktur.  
+- Hasil pembacaan akan muncul sebagai tabel di layar.
 
-**Langkah 3 — Pilih Kolom**
-- Setelah data muncul, gunakan daftar **Pilih Kolom** untuk menentukan kolom mana yang ingin diekspor ke Excel.  
-- Anda juga dapat menggunakan tombol **✅ Pilih Semua Kolom** atau **❌ Hapus Semua Kolom** untuk mempercepat pemilihan.  
+**⚙️ Langkah 3 — Pilih Kolom**
+- Gunakan daftar **Pilih Kolom** untuk menentukan kolom mana yang ingin diekspor ke Excel.  
+- Klik **✅ Pilih Semua Kolom** untuk memilih semuanya, atau **❌ Hapus Semua Kolom** untuk reset.  
+- Anda juga dapat **menyusun ulang urutan kolom** dengan cara **drag & drop** pada tabel urutan di bawahnya.
 
-**Langkah 4 — Preview & Download**
-- Lihat pratinjau (5 baris pertama) dari kolom yang Anda pilih.
-- Tekan tombol **📥 Konversi & Download Excel** untuk mengunduh hasil dalam format `.xlsx`.
+**📊 Langkah 4 — Preview & Download**
+- Pratinjau 5 baris pertama dari kolom yang dipilih akan ditampilkan.  
+- Tekan tombol **📥 Konversi & Download Excel** untuk mengunduh hasil akhir.
 
 ---
 
 ### ⚠️ Disclaimer
-Semua proses dilakukan **langsung di perangkat Anda (client-side)**.  
-Tidak ada file yang dikirim, disimpan, atau diproses di server.  
+Semua proses dijalankan **langsung di perangkat Anda (client-side)**.  
+Tidak ada file yang diunggah atau disimpan di server.  
 Keamanan dan kerahasiaan dokumen Anda sepenuhnya terjamin.
 
 ---
-
 **By: Reza Fahlevi Lubis BKP @zavibis**
 """)
 
@@ -186,11 +187,10 @@ def kode_status(k):
     return k[:2], ("Normal" if k[2] == "0" else "Pengganti")
 
 # =====================================================
-# EKSEKUSI: UPLOAD → BACA → PILIH KOLOM → PREVIEW → DOWNLOAD
+# EKSEKUSI: UPLOAD → BACA → PILIH KOLOM → DRAG ORDER → DOWNLOAD
 # =====================================================
 upl = st.file_uploader("Upload Faktur Pajak (PDF)", type=["pdf"], accept_multiple_files=True)
 
-# --- Step 1: Baca File ---
 if upl:
     if st.button("📖 Baca File"):
         rows = []
@@ -225,22 +225,24 @@ if upl:
         st.success(f"✅ File berhasil dibaca! {len(df)} baris data ditemukan.")
         st.dataframe(df)
 
-# --- Step 2: Pilih Kolom & Preview ---
+# --- Step 2: Pilih Kolom & Urutan ---
 if "data_faktur" in st.session_state:
     df = st.session_state["data_faktur"]
 
-    st.markdown("### 🧩 Pilih Kolom untuk Diekspor")
+    st.markdown("### 🧩 Pilih & Atur Urutan Kolom untuk Diekspor")
 
     if "kolom_terpilih" not in st.session_state:
         st.session_state["kolom_terpilih"] = list(df.columns)
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ Pilih Semua Kolom"):
+        if st.button("✅ Pilih Semua Kolom", use_container_width=True):
             st.session_state["kolom_terpilih"] = list(df.columns)
+            st.rerun()
     with col2:
-        if st.button("❌ Hapus Semua Kolom"):
+        if st.button("❌ Hapus Semua Kolom", use_container_width=True):
             st.session_state["kolom_terpilih"] = []
+            st.rerun()
 
     kolom_terpilih = st.multiselect(
         "Pilih kolom yang ingin disertakan dalam hasil konversi:",
@@ -251,14 +253,26 @@ if "data_faktur" in st.session_state:
     st.session_state["kolom_terpilih"] = kolom_terpilih
 
     if kolom_terpilih:
-        df_filtered = df[kolom_terpilih]
+        st.markdown("### ↕️ Atur Urutan Kolom (Drag & Drop)")
+        urutan_df = pd.DataFrame({"Urutan": range(1, len(kolom_terpilih) + 1),
+                                  "Nama Kolom": kolom_terpilih})
+        urutan_edit = st.data_editor(
+            urutan_df,
+            hide_index=True,
+            use_container_width=True,
+            num_rows="fixed",
+            key="reorder_editor"
+        )
+        urutan_final = urutan_edit["Nama Kolom"].tolist()
+        st.session_state["kolom_terpilih"] = urutan_final
+
+        df_filtered = df[urutan_final]
         st.markdown("### 🔍 Preview Hasil Kolom Terpilih (5 Baris Pertama)")
         st.dataframe(df_filtered.head(5))
 
         buf = BytesIO()
         df_filtered.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f")
         buf.seek(0)
-
         st.download_button(
             "📥 Konversi & Download Excel",
             buf,
