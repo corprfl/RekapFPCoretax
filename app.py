@@ -36,25 +36,25 @@ for k, v in {"step": None, "data_faktur": None, "ordered_cols": None}.items():
 # =====================================================
 # HEADER & DESKRIPSI
 # =====================================================
-st.title("🐾 Extractor isi Faktur Pajak Coretax ke Excel")
+st.title("🐾 Extractor isi Faktur Pajak Coretax ke Excel (24 Kolom Lengkap)")
 st.markdown("""
 ### 📘 Deskripsi Aplikasi
-Aplikasi ini digunakan untuk **mengekstrak isi Faktur Pajak (PDF)** menjadi **file Excel secara otomatis**.  
-Cocok untuk rekap cepat faktur pajak tanpa mengetik manual.
+Aplikasi ini digunakan untuk **mengekstrak isi Faktur Pajak (PDF)** menjadi **file Excel otomatis (24 kolom lengkap)**.  
+Cocok untuk rekap data faktur pajak Coretax dengan format kolom detail.
 
 Menampilkan informasi:
-- 📄 **Metadata faktur**: Nomor, Tanggal, Nama PKP, NPWP, Pembeli, dll  
-- 💬 **Detail barang/jasa**: Deskripsi dan nilai per item  
-- 💰 **Total nilai**: DPP, PPN, PPnBM, Potongan Harga, dsb
+- 📄 Metadata faktur: Nomor, Tanggal, Nama PKP, NPWP, Pembeli, dsb  
+- 💬 Detail barang/jasa: Deskripsi, kode, dan harga  
+- 💰 Nilai transaksi: DPP, PPN, PPnBM, potongan, uang muka, total akhir  
 
 ---
 
 ### 🧩 Panduan Penggunaan
-1️⃣ **Upload Faktur Pajak (PDF)** – pilih satu atau beberapa file.  
-2️⃣ Klik **📖🐱 Baca File** – sistem membaca semua PDF dan menampilkan tabel hasil.  
-3️⃣ Klik **✅🐱 Data Sesuai** jika hasil pembacaan sudah benar.  
-4️⃣ Atur **urutan kolom (drag & drop)** sesuai kebutuhan.  
-5️⃣ Klik **✅🐱 Tetapkan Urutan Kolom**, lalu lihat **Preview** dan tekan **📥🐱 Download Excel**.
+1️⃣ **Upload Faktur Pajak (PDF)** – pilih satu atau beberapa file  
+2️⃣ Klik **📖🐱 Baca File** untuk ekstraksi otomatis  
+3️⃣ Jika hasil sesuai, klik **✅🐱 Data Sesuai**  
+4️⃣ Urutkan kolom (drag & drop) lalu klik **✅🐱 Tetapkan Urutan Kolom**  
+5️⃣ Lihat **Preview** dan tekan **📥🐱 Konversi & Download Excel**
 
 ---
 
@@ -102,8 +102,15 @@ def extract_total(txt):
         try: return float(m.group(1).replace(".","").replace(",","."))
         except: return 0.0
     return {
+        "Total Harga Jual / Penggantian / Uang Muka / Termin":
+            val(r"Harga\s*Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"),
+        "Dikurangi Potongan Harga (Total)":
+            val(r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]*)"),
+        "Dikurangi Uang Muka yang telah diterima (Total)":
+            val(r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]*)"),
         "Dasar Pengenaan Pajak (Total)": val(r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"),
-        "PPN (Total)": val(r"Jumlah\s*PPN.*?([\d.,]+)")
+        "PPN (Total)": val(r"Jumlah\s*PPN.*?([\d.,]+)"),
+        "Jumlah PPnBM (Total)": val(r"Jumlah\s*PPnBM.*?([\d.,]+)")
     }
 
 def extract_meta(txt):
@@ -114,7 +121,11 @@ def extract_meta(txt):
         "Nama Pembeli": extract(r"Pembeli Barang Kena Pajak.*?Nama\s*:\s*(.*?)\s*Alamat", txt),
         "NPWP Pembeli": extract(r"NPWP\s*:\s*([0-9.]+)\s*NIK", txt),
         "NITKU Pembeli": extract_nitku(txt),
-        "Tanggal Faktur Pajak": extract_tanggal(txt)
+        "Kota": extract(r"\n([A-Z .,]+),\s*\d{1,2}\s+\w+\s+\d{4}", txt),
+        "Tanggal Faktur Pajak": extract_tanggal(txt),
+        "Penandatangan": extract(r"Ditandatangani secara elektronik\n(.*?)\n", txt),
+        "Keterangan Tambahan": extract(r"Keterangan\s*:\s*(.*)", txt),
+        "Nomor Referensi": extract(r"Nomor\s*Referensi\s*[:\-]?\s*([A-Za-z0-9\-\/]+)", txt)
     }
 
 def extract_tabel_auto(txt):
@@ -216,5 +227,5 @@ if st.session_state.step == "preview" and st.session_state.ordered_cols:
     buf = BytesIO()
     df_filtered.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f")
     buf.seek(0)
-    st.download_button("📥🐱 Konversi & Download Excel", buf, "rekap_faktur.xlsx",
+    st.download_button("📥🐱 Konversi & Download Excel", buf, "rekap_faktur_coretax.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
