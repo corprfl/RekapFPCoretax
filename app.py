@@ -34,38 +34,11 @@ for k, v in {"step": None, "data_faktur": None, "ordered_cols": None}.items():
         st.session_state[k] = v
 
 # =====================================================
-# HEADER & DESKRIPSI
+# HEADER
 # =====================================================
 st.title("🐾 Extractor isi Faktur Pajak Coretax ke Excel")
 st.markdown("""
-### 📘 Deskripsi Aplikasi
-Aplikasi ini digunakan untuk **mengekstrak isi Faktur Pajak (PDF)** menjadi **file Excel otomatis**.  
-Cocok untuk rekap data faktur pajak Coretax dengan format kolom detail.
-
-Menampilkan informasi:
-- 📄 Metadata faktur: Nomor, Tanggal, Nama PKP, NPWP, Pembeli, dsb  
-- 💬 Detail barang/jasa: Deskripsi, kode, dan harga  
-- 💰 Nilai transaksi: DPP, PPN, PPnBM, potongan, uang muka, total akhir  
-
----
-
-### 🧩 Panduan Penggunaan
-1️⃣ **Upload Faktur Pajak (PDF)** – pilih satu atau beberapa file  
-2️⃣ Klik **📖🐱 Baca File** untuk ekstraksi otomatis  
-3️⃣ Jika hasil sesuai, klik **✅🐱 Data Sesuai**  
-4️⃣ Urutkan kolom (drag & drop) lalu klik **✅🐱 Tetapkan Urutan Kolom**  
-5️⃣ Lihat **Preview** dan tekan **📥🐱 Konversi & Download Excel**
-
----
-
-### ⚠️ Disclaimer
-Semua proses dilakukan **langsung di perangkat Anda (client-side)**.  
-Tidak ada file yang dikirim, disimpan, atau diproses di server mana pun.  
-**Kerahasiaan dan keamanan data pajak Anda sepenuhnya terjamin.**
-
----
-
-**By: Reza Fahlevi Lubis BKP @zavibis**
+Aplikasi ini mengekstrak **detail baris** Faktur Pajak Coretax (PDF) menjadi Excel.
 """)
 
 # =====================================================
@@ -92,25 +65,40 @@ def extract_nitku(txt):
         if "NPWP" in l and i > 0:
             prev = txt.splitlines()[i-1]
             m = re.search(r"#(\d{22})", prev)
-            if m: return m.group(1)
+            if m: 
+                return m.group(1)
     return "-"
+
+def extract_referensi(txt):
+    """
+    Format asli PDF:
+    (Referensi: INV No. 202510058/BMA-EMP BENTU/25)
+    (Referensi: 2025/X/INV-0003)
+    """
+    m = re.search(r"\(Referensi:\s*(.*?)\)", txt, flags=re.IGNORECASE)
+    return m.group(1).strip() if m else "-"
 
 def extract_total(txt):
     def val(p):
         m = re.search(p, txt, re.DOTALL)
         if not m: return 0.0
-        try: return float(m.group(1).replace(".","").replace(",","."))
-        except: return 0.0
+        try:
+            return float(m.group(1).replace(".","").replace(",","."))
+        except:
+            return 0.0
     return {
         "Total Harga Jual / Penggantian / Uang Muka / Termin":
             val(r"Harga\s*Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"),
-        "Dikurangi Potongan Harga (Total)":
+        "Dikurangi Potongan Harga (Total)": 
             val(r"Dikurangi\s+Potongan\s+Harga\s*([\d.,]*)"),
         "Dikurangi Uang Muka yang telah diterima (Total)":
             val(r"Dikurangi\s+Uang\s+Muka\s+yang\s+telah\s+diterima\s*([\d.,]*)"),
-        "Dasar Pengenaan Pajak (Total)": val(r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"),
-        "PPN (Total)": val(r"Jumlah\s*PPN.*?([\d.,]+)"),
-        "Jumlah PPnBM (Total)": val(r"Jumlah\s*PPnBM.*?([\d.,]+)")
+        "Dasar Pengenaan Pajak (Total)":
+            val(r"Dasar\s+Pengenaan\s+Pajak\s*([\d.,]+)"),
+        "PPN (Total)":
+            val(r"Jumlah\s*PPN.*?([\d.,]+)"),
+        "Jumlah PPnBM (Total)":
+            val(r"Jumlah\s*PPnBM.*?([\d.,]+)")
     }
 
 def extract_meta(txt):
@@ -125,13 +113,16 @@ def extract_meta(txt):
         "Tanggal Faktur Pajak": extract_tanggal(txt),
         "Penandatangan": extract(r"Ditandatangani secara elektronik\n(.*?)\n", txt),
         "Keterangan Tambahan": extract(r"Keterangan\s*:\s*(.*)", txt),
-        "Nomor Referensi": extract(r"Nomor\s*Referensi\s*[:\-]?\s*([A-Za-z0-9\-\/]+)", txt)
+
+        # 🔥 FIX TERPENTING
+        "Nomor Referensi": extract_referensi(txt)
     }
 
 def extract_tabel_auto(txt):
     if re.search(r"\n\s*\d+\s+\d{6}\s+", txt):
         pat = re.compile(
-            r"(\d+)\s+(\d{6})\s+([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+\s+\d{6}|\nHarga Jual|$)", re.M
+            r"(\d+)\s+(\d{6})\s+([\s\S]*?)\n\s*([\d.,]+)\s*(?=\n\d+\s+\d{6}|\nHarga Jual|$)",
+            re.M,
         )
         res = []
         for m in pat.finditer(txt):
@@ -139,43 +130,54 @@ def extract_tabel_auto(txt):
                 "No": m.group(1),
                 "Kode Barang/Jasa": m.group(2),
                 "Nama Barang Kena Pajak / Jasa Kena Pajak": " ".join(m.group(3).split()),
-                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": float(m.group(4).replace(".","").replace(",","."))
+                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)":
+                    float(m.group(4).replace(".","").replace(",","."))
             })
         return res
-    else:
-        res = []
-        blocks = re.split(r'\n(?=\d+\s*\n)', txt)
-        for blk in blocks:
-            blk = blk.strip()
-            m = re.match(r"(\d+)\s+(.*)", blk, re.DOTALL)
-            if not m: continue
-            no, content = m.group(1), m.group(2).strip()
-            harga_match = re.findall(r'\b([\d.,]+)\b\s*$', content)
-            if not harga_match: continue
-            harga = float(harga_match[-1].replace(".","").replace(",","."))
-            deskripsi = re.sub(r'\b[\d.,]+\b\s*$', '', content).strip()
-            if len(deskripsi) > 5 and harga > 0:
-                res.append({
-                    "No": no, "Kode Barang/Jasa": "-",
-                    "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
-                    "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
-                })
-        return res
+
+    # fallback jika format tidak ada kode 6 digit
+    res = []
+    blocks = re.split(r'\n(?=\d+\s*\n)', txt)
+    for blk in blocks:
+        blk = blk.strip()
+        m = re.match(r"(\d+)\s+(.*)", blk, re.DOTALL)
+        if not m:
+            continue
+        no, content = m.group(1), m.group(2).strip()
+        harga_match = re.findall(r'\b([\d.,]+)\b\s*$', content)
+        if not harga_match:
+            continue
+        harga = float(harga_match[-1].replace(".","").replace(",","."))
+        deskripsi = re.sub(r'\b[\d.,]+\b\s*$', '', content).strip()
+        if len(deskripsi) > 5 and harga > 0:
+            res.append({
+                "No": no,
+                "Kode Barang/Jasa": "-",
+                "Nama Barang Kena Pajak / Jasa Kena Pajak": deskripsi,
+                "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": harga
+            })
+    return res
 
 # =====================================================
 # STEP 1 — UPLOAD & BACA FILE
 # =====================================================
 upl = st.file_uploader("Upload Faktur Pajak (PDF)", type=["pdf"], accept_multiple_files=True)
+
 if upl and st.button("📖🐱 Baca File", type="primary", key="baca"):
     rows = []
+
     for f in upl:
         txt = "".join([p.get_text() for p in fitz.open(stream=f.read(), filetype="pdf")])
+
         meta = extract_meta(txt)
         meta.update(extract_total(txt))
+
         meta["Nama Asli File"] = f.name
+
         tgl = meta["Tanggal Faktur Pajak"].split("/")
         meta["Masa"] = tgl[1] if len(tgl) > 1 else "-"
         meta["Tahun"] = tgl[2] if len(tgl) > 2 else "-"
+
         items = extract_tabel_auto(txt)
         if not items:
             items = [{
@@ -183,11 +185,14 @@ if upl and st.button("📖🐱 Baca File", type="primary", key="baca"):
                 "Nama Barang Kena Pajak / Jasa Kena Pajak": "Tidak terbaca",
                 "Harga Jual / Penggantian / Uang Muka / Termin (Rp)": 0.0
             }]
+
         for it in items:
             rows.append({**it, **meta})
+
     df = pd.DataFrame(rows)
     st.session_state.data_faktur = df
     st.session_state.step = "cek"
+
     st.success(f"✅ {len(df)} baris berhasil dibaca.")
     st.dataframe(df)
 
@@ -195,37 +200,43 @@ if upl and st.button("📖🐱 Baca File", type="primary", key="baca"):
 # STEP 2 — KONFIRMASI
 # =====================================================
 if st.session_state.step == "cek" and st.session_state.data_faktur is not None:
-    st.markdown('<div id="data-sesuai">', unsafe_allow_html=True)
-    if st.button("✅🐱 Data Sesuai", key="data_ok"):
+    if st.button("✔️ Data Sudah Sesuai"):
         st.session_state.step = "urut"
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================
 # STEP 3 — URUTKAN KOLOM
 # =====================================================
-if st.session_state.step in ["urut", "preview"] and st.session_state.data_faktur is not None:
-    st.markdown("### ↕️ Urutkan Kolom (Drag & Drop)")
+if st.session_state.step in ["urut", "preview"]:
     df = st.session_state.data_faktur
+
+    st.markdown("### ↕️ Urutkan Kolom (Drag & Drop)")
     cols = list(df.columns)
+
     ordered = sort_items(cols, direction="horizontal", multi_containers=False, key="sortcols")
     st.session_state.ordered_cols = ordered
-    st.markdown('<div id="urutan-kolom">', unsafe_allow_html=True)
-    if st.button("✅🐱 Tetapkan Urutan Kolom"):
+
+    if st.button("✔️ Tetapkan Urutan Kolom"):
         if ordered:
             st.session_state.step = "preview"
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================
 # STEP 4 — PREVIEW & DOWNLOAD
 # =====================================================
-if st.session_state.step == "preview" and st.session_state.ordered_cols:
+if st.session_state.step == "preview":
     df = st.session_state.data_faktur
     cols = st.session_state.ordered_cols
     df_filtered = df[cols]
+
     st.markdown("### 🔍 Preview (5 Baris Pertama)")
     st.dataframe(df_filtered.head(5))
+
     buf = BytesIO()
     df_filtered.to_excel(buf, index=False, engine="openpyxl", float_format="%.0f")
     buf.seek(0)
-    st.download_button("📥🐱 Konversi & Download Excel", buf, "rekap_faktur_coretax.xlsx",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    st.download_button(
+        "📥🐱 Download Excel",
+        buf,
+        "rekap_detail_faktur_coretax.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
