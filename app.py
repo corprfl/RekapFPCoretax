@@ -61,31 +61,40 @@ def extract_tanggal(txt):
     return "-"
 
 def extract_nitku(txt):
-    for i, l in enumerate(txt.splitlines()):
+    lines = txt.splitlines()
+    for i, l in enumerate(lines):
         if "NPWP" in l and i > 0:
-            prev = txt.splitlines()[i-1]
+            prev = lines[i-1]
             m = re.search(r"#(\d{22})", prev)
-            if m: 
+            if m:
                 return m.group(1)
     return "-"
 
+# 🔥 FIX REFERENSI (DIGABUNG & AMAN NEWLINE)
 def extract_referensi(txt):
     """
-    Format asli PDF:
-    (Referensi: INV No. 202510058/BMA-EMP BENTU/25)
-    (Referensi: 2025/X/INV-0003)
+    Ambil Referensi Faktur Pajak (digabung satu kolom),
+    aman walau teks PDF terpotong baris.
     """
-    m = re.search(r"\(Referensi:\s*(.*?)\)", txt, flags=re.IGNORECASE)
-    return m.group(1).strip() if m else "-"
+    m = re.search(
+        r"\(Referensi:\s*([\s\S]*?)\)",
+        txt,
+        flags=re.IGNORECASE
+    )
+    if not m:
+        return "-"
+    return " ".join(m.group(1).split())
 
 def extract_total(txt):
     def val(p):
         m = re.search(p, txt, re.DOTALL)
-        if not m: return 0.0
+        if not m:
+            return 0.0
         try:
             return float(m.group(1).replace(".","").replace(",","."))
         except:
             return 0.0
+
     return {
         "Total Harga Jual / Penggantian / Uang Muka / Termin":
             val(r"Harga\s*Jual\s*/\s*Penggantian\s*/\s*Uang\s*Muka\s*/\s*Termin\s*([\d.,]+)"),
@@ -113,8 +122,6 @@ def extract_meta(txt):
         "Tanggal Faktur Pajak": extract_tanggal(txt),
         "Penandatangan": extract(r"Ditandatangani secara elektronik\n(.*?)\n", txt),
         "Keterangan Tambahan": extract(r"Keterangan\s*:\s*(.*)", txt),
-
-        # 🔥 FIX TERPENTING
         "Nomor Referensi": extract_referensi(txt)
     }
 
@@ -135,7 +142,6 @@ def extract_tabel_auto(txt):
             })
         return res
 
-    # fallback jika format tidak ada kode 6 digit
     res = []
     blocks = re.split(r'\n(?=\d+\s*\n)', txt)
     for blk in blocks:
@@ -171,7 +177,6 @@ if upl and st.button("📖🐱 Baca File", type="primary", key="baca"):
 
         meta = extract_meta(txt)
         meta.update(extract_total(txt))
-
         meta["Nama Asli File"] = f.name
 
         tgl = meta["Tanggal Faktur Pajak"].split("/")
@@ -208,7 +213,6 @@ if st.session_state.step == "cek" and st.session_state.data_faktur is not None:
 # =====================================================
 if st.session_state.step in ["urut", "preview"]:
     df = st.session_state.data_faktur
-
     st.markdown("### ↕️ Urutkan Kolom (Drag & Drop)")
     cols = list(df.columns)
 
